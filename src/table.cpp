@@ -121,7 +121,6 @@ bool Table::blockify()
 		{
 			if (!getline(s, word, ','))
 				return false;
-			cout << "word: " << word << endl;
 			row[columnCounter] = stoi(word);
 			rowsInPage[pageCounter][columnCounter] = row[columnCounter];
 		}

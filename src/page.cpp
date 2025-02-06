@@ -31,24 +31,62 @@ Page::Page(string tableName, int pageIndex)
 	this->tableName = tableName;
 	this->pageIndex = pageIndex;
 	this->pageName = "../data/temp/" + this->tableName + "_Page" + to_string(pageIndex);
-	Table table = *tableCatalogue.getTable(tableName);
-	this->columnCount = table.columnCount;
-	uint maxRowCount = table.maxRowsPerBlock;
-	vector<int> row(columnCount, 0);
-	this->rows.assign(maxRowCount, row);
 
-	ifstream fin(pageName, ios::in);
-	this->rowCount = table.rowsPerBlockCount[pageIndex];
-	int number;
-	for (uint rowCounter = 0; rowCounter < this->rowCount; rowCounter++)
+	if (tableCatalogue.isTable(tableName))
 	{
-		for (int columnCounter = 0; columnCounter < columnCount; columnCounter++)
+		Table table = *tableCatalogue.getTable(tableName);
+		this->columnCount = table.columnCount;
+		uint maxRowCount = table.maxRowsPerBlock;
+
+		vector<int> row(columnCount, 0);
+		this->rows.assign(maxRowCount, row);
+
+		this->rowCount = table.rowsPerBlockCount[pageIndex];
+
+		// Read the page file
+		ifstream fin(this->pageName, ios::in);
+		int number;
+		for (uint rowCounter = 0; rowCounter < this->rowCount; rowCounter++)
 		{
-			fin >> number;
-			this->rows[rowCounter][columnCounter] = number;
+			for (int columnCounter = 0; columnCounter < columnCount; columnCounter++)
+			{
+				fin >> number;
+				this->rows[rowCounter][columnCounter] = number;
+			}
 		}
+		fin.close();
 	}
-	fin.close();
+	else if (matrixCatalogue.isMatrix(tableName))
+	{
+		Matrix *matrix = matrixCatalogue.getMatrix(tableName);
+		this->columnCount = matrix->dimension;
+		uint maxRowCount = matrix->maxRowsPerBlock;
+		this->rowCount = matrix->rowsPerBlockCount[pageIndex];
+
+		// Prepare the in-memory rows array
+		vector<int> row(this->columnCount, 0);
+		this->rows.assign(maxRowCount, row);
+
+		// Read from the page file
+		ifstream fin(this->pageName, ios::in);
+		int number;
+		for (uint rowCounter = 0; rowCounter < this->rowCount; rowCounter++)
+		{
+			for (int columnCounter = 0; columnCounter < this->columnCount; columnCounter++)
+			{
+				fin >> number;
+				this->rows[rowCounter][columnCounter] = number;
+			}
+		}
+		fin.close();
+	}
+	else
+	{
+		// Fallback if neither table nor matrix found
+		this->rowCount = 0;
+		this->columnCount = 0;
+		this->rows.clear();
+	}
 }
 
 /**

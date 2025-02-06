@@ -50,6 +50,10 @@ void executeCommand()
 	case LOADMATRIX:
 		executeLOADMATRIX();
 		break;
+	case PRINTMATRIX:
+		executePRINTMATRIX();
+		break;
+
 	default:
 		cout << "PARSING ERROR" << endl;
 	}

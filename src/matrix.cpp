@@ -143,3 +143,33 @@ void Matrix::unload()
 	}
 	// Optionally remove the original CSV if not permanent, etc.
 }
+
+void Matrix::print()
+{
+	logger.log("Matrix::print");
+	int limit = min(dimension, 20); // dont print more than 20 rows
+
+	int rowsPrinted = 0;
+	for (int blockIndex = 0; blockIndex < this->blockCount && rowsPrinted < limit; blockIndex++)
+	{
+		// number of actual rows in this block:
+		int rowsInThisBlock = this->rowsPerBlockCount[blockIndex];
+
+		Page page = bufferManager.getPage(this->matrixName, blockIndex);
+
+		for (int r = 0; r < rowsInThisBlock && rowsPrinted < limit; r++)
+		{
+			vector<int> rowData = page.getRow(r);
+			for (int c = 0; c < limit; c++)
+			{
+				cout << rowData[c];
+				if (c < limit - 1)
+					cout << " ";
+			}
+			cout << endl;
+			rowsPrinted++;
+		}
+	}
+
+	cout << "Matrix dimension: " << dimension << " x " << dimension << endl;
+}

@@ -34,6 +34,7 @@ public:
 
 	// Removes matrix's .temp pages if needed (similar to Table::unload)
 	void unload();
+	void print();
 };
 
 #endif

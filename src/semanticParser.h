@@ -21,5 +21,6 @@ bool semanticParseSELECTION();
 bool semanticParseSORT();
 bool semanticParseSOURCE();
 bool semanticParseLOADMATRIX();
+bool semanticParsePRINTMATRIX();
 
 #endif

@@ -24,6 +24,7 @@ enum QueryType
 	SORT,
 	SOURCE,
 	LOADMATRIX,
+	PRINTMATRIX,
 	UNDETERMINED
 };
 
@@ -108,6 +109,7 @@ public:
 	string sourceFileName = "";
 
 	string loadMatrixName = "";
+	string printMatrixName = "";
 
 	ParsedQuery();
 	void clear();
@@ -129,6 +131,7 @@ bool syntacticParseSELECTION();
 bool syntacticParseSORT();
 bool syntacticParseSOURCE();
 bool syntacticParseLOADMATRIX();
+bool syntacticParsePRINTMATRIX();
 
 bool isFileExists(string tableName);
 bool isQueryFile(string fileName);
