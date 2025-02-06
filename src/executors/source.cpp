@@ -1,8 +1,5 @@
 #include "../global.h"
-/**
- * @brief
- * SYNTAX: SOURCE filename
- */
+
 bool syntacticParseSOURCE()
 {
 	logger.log("syntacticParseSOURCE");
@@ -30,5 +27,37 @@ bool semanticParseSOURCE()
 void executeSOURCE()
 {
 	logger.log("executeSOURCE");
+
+	string fileName = "../data/" + parsedQuery.sourceFileName + ".ra";
+	ifstream fin(fileName);
+	if (!fin.is_open())
+	{
+
+		cout << "SEMANTIC ERROR: Could not open file \"" << fileName << "\"" << endl;
+		return;
+	}
+
+	regex delim("[^\\s,]+");
+	string command;
+
+	while (getline(fin, command))
+	{
+		logger.log(command);
+
+		tokenizedQuery.clear();
+		parsedQuery.clear();
+		auto words_begin = sregex_iterator(command.begin(), command.end(), delim);
+		auto words_end = sregex_iterator();
+		for (auto i = words_begin; i != words_end; ++i)
+			tokenizedQuery.emplace_back((*i).str());
+
+		if (tokenizedQuery.empty())
+			continue;
+
+		if (syntacticParse() && semanticParse())
+			executeCommand();
+	}
+
+	fin.close();
 	return;
 }
