@@ -1,3 +1,7 @@
+#ifndef EXECUTOR_H
+#define EXECUTOR_H
+
+#pragma once
 #include "semanticParser.h"
 
 void executeCommand();
@@ -16,6 +20,9 @@ void executeRENAME();
 void executeSELECTION();
 void executeSORT();
 void executeSOURCE();
+void executeLOADMATRIX();
 
 bool evaluateBinOp(int value1, int value2, BinaryOperator binaryOperator);
 void printRowCount(int rowCount);
+
+#endif

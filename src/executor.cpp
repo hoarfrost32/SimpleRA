@@ -47,6 +47,9 @@ void executeCommand()
 	case SOURCE:
 		executeSOURCE();
 		break;
+	case LOADMATRIX:
+		executeLOADMATRIX();
+		break;
 	default:
 		cout << "PARSING ERROR" << endl;
 	}

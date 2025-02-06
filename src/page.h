@@ -1,3 +1,7 @@
+#ifndef PAGE_H
+#define PAGE_H
+
+#pragma once
 #include "logger.h"
 /**
  * @brief The Page object is the main memory representation of a physical page
@@ -27,3 +31,5 @@ public:
 	vector<int> getRow(int rowIndex);
 	void writePage();
 };
+
+#endif

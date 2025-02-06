@@ -33,6 +33,8 @@ bool semanticParse()
 		return semanticParseSORT();
 	case SOURCE:
 		return semanticParseSOURCE();
+	case LOADMATRIX:
+		return semanticParseLOADMATRIX();
 	default:
 		cout << "SEMANTIC ERROR" << endl;
 	}

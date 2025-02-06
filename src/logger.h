@@ -1,3 +1,7 @@
+#ifndef LOGGER_H
+#define LOGGER_H
+
+#pragma once
 #include <iostream>
 #include <bits/stdc++.h>
 #include <sys/stat.h>
@@ -17,3 +21,5 @@ public:
 };
 
 extern Logger logger;
+
+#endif

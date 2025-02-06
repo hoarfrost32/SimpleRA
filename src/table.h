@@ -1,3 +1,7 @@
+#ifndef TABLE_H
+#define TABLE_H
+
+#pragma once
 #include "cursor.h"
 
 enum IndexingStrategy
@@ -87,3 +91,5 @@ public:
 		fout.close();
 	}
 };
+
+#endif

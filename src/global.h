@@ -1,3 +1,7 @@
+#ifndef GLOBAL_H
+#define GLOBAL_H
+
+#pragma once
 #include "executor.h"
 #include <regex>
 
@@ -8,3 +12,6 @@ extern vector<string> tokenizedQuery;
 extern ParsedQuery parsedQuery;
 extern TableCatalogue tableCatalogue;
 extern BufferManager bufferManager;
+extern MatrixCatalogue matrixCatalogue;
+
+#endif

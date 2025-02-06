@@ -1,3 +1,7 @@
+#ifndef BUFFERMANAGER_H
+#define BUFFERMANAGER_H
+
+#pragma once
 #include "page.h"
 
 /**
@@ -36,3 +40,5 @@ public:
 	void deleteFile(string fileName);
 	void writePage(string tableName, int pageIndex, vector<vector<int>> rows, int rowCount);
 };
+
+#endif

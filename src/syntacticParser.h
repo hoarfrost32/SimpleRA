@@ -1,4 +1,9 @@
+#ifndef SYNTACTICPARSER_H
+#define SYNTACTICPARSER_H
+
+#pragma once
 #include "tableCatalogue.h"
+#include "matrixCatalogue.h"
 
 using namespace std;
 
@@ -18,6 +23,7 @@ enum QueryType
 	SELECTION,
 	SORT,
 	SOURCE,
+	LOADMATRIX,
 	UNDETERMINED
 };
 
@@ -101,6 +107,8 @@ public:
 
 	string sourceFileName = "";
 
+	string loadMatrixName = "";
+
 	ParsedQuery();
 	void clear();
 };
@@ -120,6 +128,9 @@ bool syntacticParseRENAME();
 bool syntacticParseSELECTION();
 bool syntacticParseSORT();
 bool syntacticParseSOURCE();
+bool syntacticParseLOADMATRIX();
 
 bool isFileExists(string tableName);
 bool isQueryFile(string fileName);
+
+#endif
