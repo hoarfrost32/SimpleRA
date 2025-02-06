@@ -173,3 +173,36 @@ void Matrix::print()
 
 	cout << "Matrix dimension: " << dimension << " x " << dimension << endl;
 }
+
+void Matrix::makePermanent()
+{
+	logger.log("Matrix::makePermanent");
+	string newSourceFile = "../data/" + this->matrixName + ".csv";
+	ofstream fout(newSourceFile, ios::out);
+	if (!fout.is_open())
+	{
+		cout << "Error opening file for matrix export." << endl;
+		return;
+	}
+
+	int totalBlocks = this->blockCount;
+	for (int blockIndex = 0; blockIndex < totalBlocks; blockIndex++)
+	{
+		Page page = bufferManager.getPage(this->matrixName, blockIndex);
+		int rowsInThisBlock = this->rowsPerBlockCount[blockIndex];
+
+		for (int r = 0; r < rowsInThisBlock; r++)
+		{
+			vector<int> rowData = page.getRow(r);
+			for (int c = 0; c < this->dimension; c++)
+			{
+				fout << rowData[c];
+				if (c < this->dimension - 1)
+					fout << ",";
+			}
+			fout << "\n";
+		}
+	}
+
+	fout.close();
+}

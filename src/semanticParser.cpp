@@ -37,6 +37,8 @@ bool semanticParse()
 		return semanticParseLOADMATRIX();
 	case PRINTMATRIX:
 		return semanticParsePRINTMATRIX();
+	case EXPORTMATRIX:
+		return semanticParseEXPORTMATRIX();
 	default:
 		cout << "SEMANTIC ERROR" << endl;
 	}

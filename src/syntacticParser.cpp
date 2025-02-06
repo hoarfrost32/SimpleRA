@@ -34,7 +34,12 @@ bool syntacticParse()
 	else if (possibleQueryType == "RENAME")
 		return syntacticParseRENAME();
 	else if (possibleQueryType == "EXPORT")
-		return syntacticParseEXPORT();
+	{
+		if (tokenizedQuery.size() == 3 && tokenizedQuery[1] == "MATRIX")
+			return syntacticParseEXPORTMATRIX();
+		else
+			return syntacticParseEXPORT();
+	}
 	else if (possibleQueryType == "SOURCE")
 		return syntacticParseSOURCE();
 	else

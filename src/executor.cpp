@@ -53,7 +53,9 @@ void executeCommand()
 	case PRINTMATRIX:
 		executePRINTMATRIX();
 		break;
-
+	case EXPORTMATRIX:
+		executeEXPORTMATRIX();
+		break;
 	default:
 		cout << "PARSING ERROR" << endl;
 	}

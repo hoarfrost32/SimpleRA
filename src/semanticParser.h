@@ -22,5 +22,6 @@ bool semanticParseSORT();
 bool semanticParseSOURCE();
 bool semanticParseLOADMATRIX();
 bool semanticParsePRINTMATRIX();
+bool semanticParseEXPORTMATRIX();
 
 #endif
