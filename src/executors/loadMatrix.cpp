@@ -46,7 +46,7 @@ void executeLOADMATRIX()
 	{
 		matrixCatalogue.insertMatrix(matrix);
 		cout << "Loaded Matrix. Dimensions: "
-			 << matrix->n << " x " << matrix->n << endl;
+			 << matrix->dimension << " x " << matrix->dimension << endl;
 	}
 	return;
 }

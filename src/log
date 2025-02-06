@@ -2,18 +2,22 @@ BufferManager::BufferManager
 ParseQuery::clear
 
 Reading New Command: 
-LOAD MATRIX A
+LOAD A
 doCommand
 syntacticParse
-syntacticParseLOADMATRIX
+syntacticParseLOAD
 semanticParse
-semanticParseLOADMATRIX
-executeLOADMATRIX
-Matrix::Matrix constructor
-Matrix::load
-../data/A.csv
+semanticParseLOAD
+TableCatalogue::isTable
+executeLOAD
+Table::Table
+Table::load
+Table::extractColumnNames
+Table::blockify
+BufferManager::writePage
+Page::Page
+Page::writePage
+TableCatalogue::~insertTable
 ParseQuery::clear
 
 Reading New Command: 
-
-TableCatalogue::~TableCatalogue

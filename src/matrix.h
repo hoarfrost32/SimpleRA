@@ -11,17 +11,30 @@
 class Matrix
 {
 public:
-	std::string matrixName;
-	int n; // dimension (if n x n)
+    string matrixName;
+    string sourceFileName;   // "../data/<matrixName>.csv"
+    int dimension;           // n for an n x n matrix
+    int blockCount;
+    // For each block we also store how many "rows" went into that block.
+    // (In row-major layout, a "row" here means a row of the matrix.)
+    vector<int> rowsPerBlockCount;
+    uint maxRowsPerBlock;
 
-	// Store the data in memory (be mindful of large n)
-	std::vector<std::vector<int>> data;
+    Matrix() = default;
+    Matrix(string matrixName);
 
-	Matrix(std::string name);
-	bool load();  // loads from ../data/<matrixName>.csv
-	void print(); // optional
+    // Reads from the CSV, sets dimension, then calls blockify
+    bool load();
 
-	// Add more members as needed
+    // This does the actual writing of page files to ../data/temp/<matrixName>_Page<i>
+    bool blockify();
+
+    // Helper to just figure out dimension from .csv
+    bool determineMatrixDimension();
+
+    // Removes matrix's .temp pages if needed (similar to Table::unload)
+    void unload();
 };
+
 
 #endif
