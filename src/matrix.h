@@ -11,30 +11,29 @@
 class Matrix
 {
 public:
-    string matrixName;
-    string sourceFileName;   // "../data/<matrixName>.csv"
-    int dimension;           // n for an n x n matrix
-    int blockCount;
-    // For each block we also store how many "rows" went into that block.
-    // (In row-major layout, a "row" here means a row of the matrix.)
-    vector<int> rowsPerBlockCount;
-    uint maxRowsPerBlock;
+	string matrixName;
+	string sourceFileName; // "../data/<matrixName>.csv"
+	int dimension;		   // n for an n x n matrix
+	int blockCount;
+	// For each block we also store how many "rows" went into that block.
+	// (In row-major layout, a "row" here means a row of the matrix.)
+	vector<int> rowsPerBlockCount;
+	uint maxRowsPerBlock;
 
-    Matrix() = default;
-    Matrix(string matrixName);
+	Matrix() = default;
+	Matrix(string matrixName);
 
-    // Reads from the CSV, sets dimension, then calls blockify
-    bool load();
+	// Reads from the CSV, sets dimension, then calls blockify
+	bool load();
 
-    // This does the actual writing of page files to ../data/temp/<matrixName>_Page<i>
-    bool blockify();
+	// This does the actual writing of page files to ../data/temp/<matrixName>_Page<i>
+	bool blockify();
 
-    // Helper to just figure out dimension from .csv
-    bool determineMatrixDimension();
+	// Helper to just figure out dimension from .csv
+	bool determineMatrixDimension();
 
-    // Removes matrix's .temp pages if needed (similar to Table::unload)
-    void unload();
+	// Removes matrix's .temp pages if needed (similar to Table::unload)
+	void unload();
 };
-
 
 #endif
