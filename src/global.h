@@ -1,4 +1,5 @@
 #include"executor.h"
+#include <regex>
 
 extern float BLOCK_SIZE;
 extern uint BLOCK_COUNT;
