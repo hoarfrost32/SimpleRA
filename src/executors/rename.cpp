@@ -15,7 +15,7 @@ bool syntacticParseRENAME()
 	parsedQuery.renameFromColumnName = tokenizedQuery[1];
 	parsedQuery.renameToColumnName = tokenizedQuery[3];
 	parsedQuery.renameRelationName = tokenizedQuery[5];
-	return false;
+	return true;
 }
 
 bool semanticParseRENAME()
