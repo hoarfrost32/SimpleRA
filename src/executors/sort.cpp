@@ -1,4 +1,4 @@
-#include"global.h"
+#include"../global.h"
 /**
  * @brief File contains method to process SORT commands.
  * 

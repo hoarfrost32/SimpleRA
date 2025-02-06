@@ -1,4 +1,4 @@
-#include "global.h"
+#include "../global.h"
 /**
  * @brief 
  * SYNTAX: INDEX ON column_name FROM relation_name USING indexing_strategy
