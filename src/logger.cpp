@@ -2,10 +2,10 @@
 
 Logger::Logger()
 {
-    this->fout.open(this->logFile, ios::out);
+	this->fout.open(this->logFile, ios::out);
 }
 
 void Logger::log(string logString)
 {
-    fout << logString << endl;
+	fout << logString << endl;
 }
