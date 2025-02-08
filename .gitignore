@@ -1,2 +1,4 @@
 *.o
 server
+src/log
+data/temp
