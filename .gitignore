@@ -1,4 +1,4 @@
 *.o
 server
-src/log
 data/temp
+.vscode

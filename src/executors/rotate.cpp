@@ -1,4 +1,5 @@
 #include "../global.h"
+#include "../matrixHelpers.h"
 
 bool syntacticParseROTATEMATRIX()
 {
@@ -24,49 +25,6 @@ bool semanticParseROTATEMATRIX()
 		return false;
 	}
 	return true;
-}
-
-// A small helper to read one element from matrix storage
-int readMatrixElement(const string &matrixName, int row, int col)
-{
-	Matrix *matrix = matrixCatalogue.getMatrix(matrixName);
-
-	// figure out which page holds "row"
-	int blockIndex = row / matrix->maxRowsPerBlock;
-	int offsetInBlock = row % matrix->maxRowsPerBlock;
-
-	// fetch the page from buffer
-	Page page = bufferManager.getPage(matrixName, blockIndex);
-
-	// get that row from the page
-	vector<int> rowData = page.getRow(offsetInBlock);
-
-	return rowData[col]; // one integer
-}
-
-// A helper to write one element (val) into (row,col)
-void writeMatrixElement(const string &matrixName, int row, int col, int val)
-{
-	Matrix *matrix = matrixCatalogue.getMatrix(matrixName);
-	int blockIndex = row / matrix->maxRowsPerBlock;
-	int offsetInBlock = row % matrix->maxRowsPerBlock;
-
-	// get page from buffer
-	Page page = bufferManager.getPage(matrixName, blockIndex);
-
-	// read out all rows from the page so we can modify
-	vector<vector<int>> data(matrix->maxRowsPerBlock,
-							 vector<int>(matrix->dimension, 0));
-
-	int actualRows = matrix->rowsPerBlockCount[blockIndex];
-	for (int r = 0; r < actualRows; r++)
-		data[r] = page.getRow(r);
-
-	// now update the single cell
-	data[offsetInBlock][col] = val;
-
-	// rewrite the page to disk
-	bufferManager.writePage(matrixName, blockIndex, data, actualRows);
 }
 
 void executeROTATEMATRIX()
@@ -104,16 +62,6 @@ void executeROTATEMATRIX()
 			// left -> top
 			writeMatrixElement(matrix->matrixName, topRow, topCol, leftVal);
 		}
-	}
-
-	cout << "Matrix " << matrix->matrixName << ":" << endl;
-	for (int i = 0; i < n; i++)
-	{
-		for (int j = 0; j < n; j++)
-		{
-			cout << readMatrixElement(matrix->matrixName, i, j) << " ";
-		}
-		cout << endl;
 	}
 
 	cout << "Matrix " << matrix->matrixName << " rotated 90 degrees clockwise.\n";

@@ -27,6 +27,7 @@ enum QueryType
 	PRINTMATRIX,
 	EXPORTMATRIX,
 	ROTATEMATRIX,
+	CROSSTRANSPOSE,
 	UNDETERMINED
 };
 
@@ -114,6 +115,8 @@ public:
 	string printMatrixName = "";
 	string exportMatrixName = "";
 	string rotateMatrixName = "";
+	string crossTransposeMatrixName1 = "";
+	string crossTransposeMatrixName2 = "";
 
 	ParsedQuery();
 	void clear();
@@ -138,6 +141,7 @@ bool syntacticParseLOADMATRIX();
 bool syntacticParsePRINTMATRIX();
 bool syntacticParseEXPORTMATRIX();
 bool syntacticParseROTATEMATRIX();
+bool syntacticParseCROSSTRANSPOSE();
 
 bool isFileExists(string tableName);
 bool isQueryFile(string fileName);

@@ -24,8 +24,11 @@ void executeLOADMATRIX();
 void executePRINTMATRIX();
 void executeEXPORTMATRIX();
 void executeROTATEMATRIX();
+void executeCROSSTRANSPOSE();
 
 bool evaluateBinOp(int value1, int value2, BinaryOperator binaryOperator);
 void printRowCount(int rowCount);
+bool syntacticParseCROSSTRANSPOSE();
+bool semanticParseCROSSTRANSPOSE();
 
 #endif

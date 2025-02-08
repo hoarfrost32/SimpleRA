@@ -17,6 +17,8 @@ bool syntacticParse()
 		return syntacticParseINDEX();
 	else if (possibleQueryType == "LIST")
 		return syntacticParseLIST();
+	else if (possibleQueryType == "CROSSTRANSPOSE")
+		return syntacticParseCROSSTRANSPOSE();
 	else if (possibleQueryType == "LOAD")
 	{
 		if (tokenizedQuery.size() == 3 && tokenizedQuery[1] == "MATRIX")

@@ -59,6 +59,9 @@ void executeCommand()
 	case ROTATEMATRIX:
 		executeROTATEMATRIX();
 		break;
+	case CROSSTRANSPOSE:
+		executeCROSSTRANSPOSE();
+		break;
 	default:
 		cout << "PARSING ERROR" << endl;
 	}
