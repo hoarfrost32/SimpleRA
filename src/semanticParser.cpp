@@ -39,6 +39,8 @@ bool semanticParse()
 		return semanticParsePRINTMATRIX();
 	case EXPORTMATRIX:
 		return semanticParseEXPORTMATRIX();
+	case ROTATEMATRIX:
+		return semanticParseROTATEMATRIX();
 	default:
 		cout << "SEMANTIC ERROR" << endl;
 	}

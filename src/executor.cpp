@@ -56,6 +56,9 @@ void executeCommand()
 	case EXPORTMATRIX:
 		executeEXPORTMATRIX();
 		break;
+	case ROTATEMATRIX:
+		executeROTATEMATRIX();
+		break;
 	default:
 		cout << "PARSING ERROR" << endl;
 	}

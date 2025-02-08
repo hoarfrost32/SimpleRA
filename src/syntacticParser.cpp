@@ -42,6 +42,8 @@ bool syntacticParse()
 	}
 	else if (possibleQueryType == "SOURCE")
 		return syntacticParseSOURCE();
+	else if (possibleQueryType == "ROTATE")
+		return syntacticParseROTATEMATRIX();
 	else
 	{
 		string resultantRelationName = possibleQueryType;
@@ -129,6 +131,7 @@ void ParsedQuery::clear()
 	this->sortRelationName = "";
 
 	this->sourceFileName = "";
+	this->rotateMatrixName = "";
 }
 
 /**

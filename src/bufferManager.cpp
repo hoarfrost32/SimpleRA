@@ -90,6 +90,16 @@ void BufferManager::writePage(string tableName, int pageIndex, vector<vector<int
 	logger.log("BufferManager::writePage");
 	Page page(tableName, pageIndex, rows, rowCount);
 	page.writePage();
+
+	string pageName = "../data/temp/" + tableName + "_Page" + to_string(pageIndex);
+	for (auto &p : this->pages)
+	{
+		if (p.pageName == pageName)
+		{
+			p = page; // Now in-memory copy is also updated
+			break;
+		}
+	}
 }
 
 /**
