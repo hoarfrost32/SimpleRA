@@ -22,7 +22,6 @@ bool syntacticParseCROSS()
 bool semanticParseCROSS()
 {
 	logger.log("semanticParseCROSS");
-	// Both tables must exist and resultant table shouldn't
 	if (tableCatalogue.isTable(parsedQuery.crossResultRelationName))
 	{
 		cout << "SEMANTIC ERROR: Resultant relation already exists" << endl;
@@ -46,14 +45,12 @@ void executeCROSS()
 
 	vector<string> columns;
 
-	// If both tables are the same i.e. CROSS a a, then names are indexed as a1 and a2
 	if (table1.tableName == table2.tableName)
 	{
 		parsedQuery.crossFirstRelationName += "1";
 		parsedQuery.crossSecondRelationName += "2";
 	}
 
-	// Creating list of column names
 	for (int columnCounter = 0; columnCounter < table1.columnCount; columnCounter++)
 	{
 		string columnName = table1.columns[columnCounter];

@@ -4,7 +4,6 @@
 bool syntacticParseROTATEMATRIX()
 {
 	logger.log("syntacticParseROTATEMATRIX");
-	// Expect exactly 2 tokens:  ROTATE <matrixName>
 	if (tokenizedQuery.size() != 2)
 	{
 		cout << "SYNTAX ERROR" << endl;
@@ -18,7 +17,6 @@ bool syntacticParseROTATEMATRIX()
 bool semanticParseROTATEMATRIX()
 {
 	logger.log("semanticParseROTATEMATRIX");
-	// The matrix must already exist in the matrixCatalogue:
 	if (!matrixCatalogue.isMatrix(parsedQuery.rotateMatrixName))
 	{
 		cout << "SEMANTIC ERROR: No such matrix loaded" << endl;
@@ -30,36 +28,26 @@ bool semanticParseROTATEMATRIX()
 void executeROTATEMATRIX()
 {
 	logger.log("executeROTATEMATRIX");
-	// get the matrix object
 	Matrix *matrix = matrixCatalogue.getMatrix(parsedQuery.rotateMatrixName);
 	int n = matrix->dimension;
 
-	// We rotate layer by layer
 	for (int layer = 0; layer < n / 2; layer++)
 	{
-		// from 'layer' up to 'n - layer - 1'
 		for (int i = layer; i < n - layer - 1; i++)
 		{
-			// Indices of the 4 corners to swap
 			int topRow = layer, topCol = i;
 			int rightRow = i, rightCol = n - 1 - layer;
 			int bottomRow = n - 1 - layer, bottomCol = n - 1 - i;
 			int leftRow = n - 1 - i, leftCol = layer;
 
-			// read the four corners
 			int topVal = readMatrixElement(matrix->matrixName, topRow, topCol);
 			int rightVal = readMatrixElement(matrix->matrixName, rightRow, rightCol);
 			int bottomVal = readMatrixElement(matrix->matrixName, bottomRow, bottomCol);
 			int leftVal = readMatrixElement(matrix->matrixName, leftRow, leftCol);
 
-			// do the 4-way rotation:
-			// top -> right
 			writeMatrixElement(matrix->matrixName, rightRow, rightCol, topVal);
-			// right -> bottom
 			writeMatrixElement(matrix->matrixName, bottomRow, bottomCol, rightVal);
-			// bottom -> left
 			writeMatrixElement(matrix->matrixName, leftRow, leftCol, bottomVal);
-			// left -> top
 			writeMatrixElement(matrix->matrixName, topRow, topCol, leftVal);
 		}
 	}

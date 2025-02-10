@@ -50,8 +50,6 @@ bool Matrix::determineMatrixDimension()
 
 	fin.close();
 	this->dimension = lineCount;
-	// You might optionally verify each row has exactly 'dimension' columns, etc.
-	// but for simplicity, we assume it's well-formed.
 
 	return (this->dimension > 0);
 }
@@ -84,7 +82,6 @@ bool Matrix::blockify()
 	this->rowsPerBlockCount.clear();
 
 	string line;
-	// For each line in the CSV, parse it, store into rowsInPage
 	while (getline(fin, line))
 	{
 		stringstream s(line);
@@ -103,7 +100,6 @@ bool Matrix::blockify()
 		}
 		rowsInCurrentPage++;
 
-		// If this page is full, write it out
 		if (rowsInCurrentPage == (int)this->maxRowsPerBlock)
 		{
 			bufferManager.writePage(
@@ -136,12 +132,10 @@ bool Matrix::blockify()
 void Matrix::unload()
 {
 	logger.log("Matrix::unload");
-	// Delete all temp pages
 	for (int page = 0; page < this->blockCount; page++)
 	{
 		bufferManager.deleteFile(this->matrixName, page);
 	}
-	// Optionally remove the original CSV if not permanent, etc.
 }
 
 void Matrix::print()
@@ -152,7 +146,6 @@ void Matrix::print()
 	int rowsPrinted = 0;
 	for (int blockIndex = 0; blockIndex < this->blockCount && rowsPrinted < limit; blockIndex++)
 	{
-		// number of actual rows in this block:
 		int rowsInThisBlock = this->rowsPerBlockCount[blockIndex];
 
 		Page page = bufferManager.getPage(this->matrixName, blockIndex);

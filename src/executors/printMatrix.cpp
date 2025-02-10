@@ -3,7 +3,6 @@
 bool semanticParsePRINTMATRIX()
 {
 	logger.log("semanticParsePRINTMATRIX");
-	// Check if matrix is loaded
 	if (!matrixCatalogue.isMatrix(parsedQuery.printMatrixName))
 	{
 		cout << "SEMANTIC ERROR: Matrix doesn't exist" << endl;

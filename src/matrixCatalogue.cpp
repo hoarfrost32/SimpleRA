@@ -1,7 +1,6 @@
-// matrixCatalogue.cpp
 #include "global.h"
 
-MatrixCatalogue matrixCatalogue; // define the global
+MatrixCatalogue matrixCatalogue;
 
 void MatrixCatalogue::insertMatrix(Matrix *matrix)
 {
@@ -24,7 +23,7 @@ void MatrixCatalogue::deleteMatrix(std::string matrixName)
 {
 	if (!isMatrix(matrixName))
 		return;
-	// Optionally free memory, etc.
+
 	delete matrices[matrixName];
 	matrices.erase(matrixName);
 }

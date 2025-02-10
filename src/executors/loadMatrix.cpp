@@ -38,10 +38,8 @@ void executeLOADMATRIX()
 {
 	logger.log("executeLOADMATRIX");
 
-	// Construct Matrix object
 	Matrix *matrix = new Matrix(parsedQuery.loadMatrixName);
 
-	// Load from CSV
 	if (matrix->load())
 	{
 		matrixCatalogue.insertMatrix(matrix);

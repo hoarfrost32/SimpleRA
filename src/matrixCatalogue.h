@@ -1,7 +1,6 @@
 #ifndef MATRIXCATALOGUE_H
 #define MATRIXCATALOGUE_H
 
-// matrixCatalogue.h
 #pragma once
 #include "matrix.h"
 
@@ -15,7 +14,7 @@ public:
 	void deleteMatrix(std::string matrixName);
 	Matrix *getMatrix(std::string matrixName);
 	bool isMatrix(std::string matrixName);
-	void print(); // optional
+	void print();
 	~MatrixCatalogue();
 };
 

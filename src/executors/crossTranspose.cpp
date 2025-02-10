@@ -12,7 +12,6 @@
 
 static void transposeMatrixInPlace(const string &matrixName)
 {
-	// Do an in-place transpose by reading & swapping symmetrical elements
 	Matrix *M = matrixCatalogue.getMatrix(matrixName);
 	int n = M->dimension;
 
@@ -48,14 +47,12 @@ bool syntacticParseCROSSTRANSPOSE()
 bool semanticParseCROSSTRANSPOSE()
 {
 	logger.log("semanticParseCROSSTRANSPOSE");
-	// Check that both matrices exist
 	if (!matrixCatalogue.isMatrix(parsedQuery.crossTransposeMatrixName1) ||
 		!matrixCatalogue.isMatrix(parsedQuery.crossTransposeMatrixName2))
 	{
 		cout << "SEMANTIC ERROR: One or both matrices do not exist." << endl;
 		return false;
 	}
-	// Check that they have the same dimension
 	Matrix *M1 = matrixCatalogue.getMatrix(parsedQuery.crossTransposeMatrixName1);
 	Matrix *M2 = matrixCatalogue.getMatrix(parsedQuery.crossTransposeMatrixName2);
 	if (M1->dimension != M2->dimension)
@@ -72,11 +69,9 @@ void executeCROSSTRANSPOSE()
 	string mat1 = parsedQuery.crossTransposeMatrixName1;
 	string mat2 = parsedQuery.crossTransposeMatrixName2;
 
-	// transpose each matrix in-place
 	transposeMatrixInPlace(mat1);
 	transposeMatrixInPlace(mat2);
 
-	// swap their contents cell-by-cell
 	Matrix *M1 = matrixCatalogue.getMatrix(mat1);
 	Matrix *M2 = matrixCatalogue.getMatrix(mat2);
 	int n = M1->dimension;
