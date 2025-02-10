@@ -24,5 +24,7 @@ bool semanticParseLOADMATRIX();
 bool semanticParsePRINTMATRIX();
 bool semanticParseEXPORTMATRIX();
 bool semanticParseROTATEMATRIX();
+bool semanticParseCROSSTRANSPOSE();
+bool semanticParseCHECKANTISYM();
 
 #endif

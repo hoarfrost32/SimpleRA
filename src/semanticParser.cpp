@@ -43,6 +43,8 @@ bool semanticParse()
 		return semanticParseROTATEMATRIX();
 	case CROSSTRANSPOSE:
 		return semanticParseCROSSTRANSPOSE();
+	case CHECKANTISYM:
+		return semanticParseCHECKANTISYM();
 	default:
 		cout << "SEMANTIC ERROR" << endl;
 	}

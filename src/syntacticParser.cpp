@@ -46,6 +46,8 @@ bool syntacticParse()
 		return syntacticParseSOURCE();
 	else if (possibleQueryType == "ROTATE")
 		return syntacticParseROTATEMATRIX();
+	else if (possibleQueryType == "CHECKANTISYM")
+		return syntacticParseCHECKANTISYM();
 	else
 	{
 		string resultantRelationName = possibleQueryType;

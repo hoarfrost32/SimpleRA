@@ -62,6 +62,9 @@ void executeCommand()
 	case CROSSTRANSPOSE:
 		executeCROSSTRANSPOSE();
 		break;
+	case CHECKANTISYM:
+		executeCHECKANTISYM();
+		break;
 	default:
 		cout << "PARSING ERROR" << endl;
 	}
