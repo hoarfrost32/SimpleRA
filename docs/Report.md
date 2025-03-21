@@ -2,16 +2,17 @@
 
 Below is an explanation of how each matrix command (implemented by us) works in this codebase.
 
--   [Report](#report)
-    -   [SOURCE](#source)
-    -   [LOAD MATRIX](#load-matrix)
-    -   [PRINT MATRIX](#print-matrix)
-    -   [EXPORT MATRIX](#export-matrix)
-    -   [ROTATE](#rotate)
-    -   [CROSSTRANSPOSE](#crosstranspose)
-    -   [CHECKANTISYM](#checkantisym)
-    -   [Assumptions](#assumptions)
-    -   [Contributions](#contributions)
+- [Report](#report)
+  - [SOURCE](#source)
+  - [LOAD MATRIX](#load-matrix)
+  - [PRINT MATRIX](#print-matrix)
+  - [EXPORT MATRIX](#export-matrix)
+  - [ROTATE](#rotate)
+  - [CROSSTRANSPOSE](#crosstranspose)
+  - [CHECKANTISYM](#checkantisym)
+  - [ORDERBY](#orderby)
+  - [Assumptions](#assumptions)
+  - [Contributions](#contributions)
 
 ## SOURCE
 
@@ -308,6 +309,73 @@ The `<filename>` is expected to be in the `/data` directory and to end with a `.
 -   If either matrix is missing or their dimensions differ, prints a semantic error.
 -   If the data mismatch occurs, simply returns “False.”
 
+## ORDERBY
+
+**Files of interest**:
+
+-   `orderBy.cpp` (new executor file for your command)
+-   `executor.cpp` (calls `executeORDERBY()`)
+-   `syntacticParser.cpp` (contains `syntacticParseORDERBY()`)
+-   `semanticParser.cpp` (contains `semanticParseORDERBY()`)
+
+**Logic**
+
+-   **Command syntax**:
+
+    ```plaintext
+    <newTable> <- ORDER BY <columnName> ASC|DESC ON <existingTable>
+    ```
+
+    -   The `<existingTable>` must already exist in the table catalogue.
+    -   The user supplies a valid `<columnName>` to sort on.
+    -   `ASC` or `DESC` is mandatory, indicating ascending or descending.
+
+-   **Implementation details**:
+
+    1. **Syntactic Parsing** (`syntacticParseORDERBY()`):
+
+        - Checks that the tokens match the expected pattern:
+            - 8 tokens total, e.g.
+                ```
+                SortedData <- ORDER BY myColumn ASC ON InputTable
+                ```
+        - Captures the output table name, the source table name, the sort column, and the direction (ASC or DESC).
+        - Sets `parsedQuery.queryType = ORDERBY`.
+
+    2. **Semantic Parsing** (`semanticParseORDERBY()`):
+
+        - Ensures the `<existingTable>` actually exists.
+        - Ensures `<newTable>` does _not_ already exist in the catalogue.
+        - Checks that `<columnName>` is a valid column in `<existingTable>`.
+
+    3. **Execution** (`executeORDERBY()`):
+        - Reads all rows from `<existingTable>` into a vector of rows (`allRows`).
+        - Uses `std::sort` or `std::stable_sort` (with a lambda) to sort `allRows` by the specified column index.
+        - Creates a new table `<newTable>` with the same column schema, writes out sorted rows to `<newTable>`, and calls `blockify()`.
+        - Inserts `<newTable>` into the table catalogue.
+
+**Page Design and Block Access**
+
+-   Just like `SORT`, `CROSS`, or `JOIN`, `ORDER BY` uses a purely in‐memory approach: it loads all rows from the source table (via a `Cursor` that reads pages from disk) into a single `vector<vector<int>>`.
+-   After sorting, it writes rows into `<newTable>`’s CSV and calls `blockify()` to split them into pages.
+
+**Error Handling**
+
+-   If `<existingTable>` does not exist or `<newTable>` already exists, a “SEMANTIC ERROR” is printed.
+-   If `<columnName>` is not found in `<existingTable>`, a “SEMANTIC ERROR” is printed.
+-   If the user types anything other than `ASC` or `DESC`, a “SYNTAX ERROR” is printed.
+-   For extremely large tables (more rows than can fit in memory), this in‐memory sort could run out of RAM. Handling that would require an external sort approach, but for typical assignment/test data, the in‐memory solution suffices.
+
+**Sample Usage**
+
+```plaintext
+LOAD EMPLOYEE
+SortedEmp <- ORDER BY Salary ASC ON EMPLOYEE
+PRINT SortedEmp
+```
+
+This produces a new table named `SortedEmp` with rows sorted on `Salary` in ascending order.
+
 ## Assumptions
 
 1. **Integer‐only data**: All matrix CSV files contain strictly integer data in n×n format.
@@ -327,3 +395,4 @@ Below is an overview of which team member(s) contributed to each command:
 -   **ROTATE**: Aditya Tejpaul and Harshit Karwal
 -   **CROSSTRANSPOSE**: Lakshya Shastri and Harshit Karwal
 -   **CHECKANTISYM**: Lakshya Shastri, Aditya Tejpaul, and Harshit Karwal
+-   **ORDERBY**: Lakshya Shastri
