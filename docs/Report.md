@@ -1,8 +1,7 @@
-# Report
+# Table of Contents
 
-Below is an explanation of how each matrix command (implemented by us) works in this codebase.
-
-- [Report](#report)
+- [Table of Contents](#table-of-contents)
+- [Commands](#commands)
   - [SOURCE](#source)
   - [LOAD MATRIX](#load-matrix)
   - [PRINT MATRIX](#print-matrix)
@@ -11,8 +10,12 @@ Below is an explanation of how each matrix command (implemented by us) works in 
   - [CROSSTRANSPOSE](#crosstranspose)
   - [CHECKANTISYM](#checkantisym)
   - [ORDERBY](#orderby)
-  - [Assumptions](#assumptions)
-  - [Contributions](#contributions)
+- [Assumptions](#assumptions)
+- [Contributions](#contributions)
+
+# Commands
+
+Below is an explanation of how each matrix command (implemented by us) works in this codebase.
 
 ## SOURCE
 
@@ -376,7 +379,7 @@ PRINT SortedEmp
 
 This produces a new table named `SortedEmp` with rows sorted on `Salary` in ascending order.
 
-## Assumptions
+# Assumptions
 
 1. **Integer‐only data**: All matrix CSV files contain strictly integer data in n×n format.
 2. **No partial columns**: Each row in the CSV is assumed to have exactly `n` columns, matching the dimension. Any mismatch causes an error.
@@ -384,7 +387,7 @@ This produces a new table named `SortedEmp` with rows sorted on `Salary` in asce
 4. **Page Files**: Matrix data is split row‐by‐row into `../data/temp/<matrixName>_Page<i>`. These are removed when the matrix is unloaded (e.g., upon program quit or if the user explicitly removes it).
 5. **Dimension**: The code uses the line count of the CSV to define `n`. There is no separate check that the row length also equals `n`, beyond reading columns in each row line.
 
-## Contributions
+# Contributions
 
 Below is an overview of which team member(s) contributed to each command:
 
