@@ -29,6 +29,7 @@ enum QueryType
 	ROTATEMATRIX,
 	CROSSTRANSPOSE,
 	CHECKANTISYM,
+	ORDERBY,
 	UNDETERMINED
 };
 
@@ -121,6 +122,11 @@ public:
 	string checkAntiSymMatrixName1 = "";
 	string checkAntiSymMatrixName2 = "";
 
+	string orderByResultRelationName = "";					 // new table to be created
+	string orderByRelationName = "";						 // existing table to order
+	string orderByColumnName = "";							 // the column to sort on
+	SortingStrategy orderBySortingStrategy = NO_SORT_CLAUSE; // ASC or DESC
+
 	ParsedQuery();
 	void clear();
 };
@@ -146,6 +152,7 @@ bool syntacticParseEXPORTMATRIX();
 bool syntacticParseROTATEMATRIX();
 bool syntacticParseCROSSTRANSPOSE();
 bool syntacticParseCHECKANTISYM();
+bool syntacticParseORDERBY();
 
 bool isFileExists(string tableName);
 bool isQueryFile(string fileName);
