@@ -45,6 +45,8 @@ bool semanticParse()
 		return semanticParseCROSSTRANSPOSE();
 	case CHECKANTISYM:
 		return semanticParseCHECKANTISYM();
+	case ORDERBY:
+		return semanticParseORDERBY();
 	default:
 		cout << "SEMANTIC ERROR" << endl;
 	}

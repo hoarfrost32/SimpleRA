@@ -65,6 +65,9 @@ void executeCommand()
 	case CHECKANTISYM:
 		executeCHECKANTISYM();
 		break;
+	case ORDERBY:
+		executeORDERBY();
+		break;
 	default:
 		cout << "PARSING ERROR" << endl;
 	}
