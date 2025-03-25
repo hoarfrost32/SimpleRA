@@ -1,4 +1,5 @@
 #include "global.h"
+#include "syntacticParser.h"
 
 bool semanticParse()
 {
@@ -47,6 +48,8 @@ bool semanticParse()
 		return semanticParseCHECKANTISYM();
 	case ORDERBY:
 		return semanticParseORDERBY();
+	case GROUPBY:
+		return semanticParseGROUPBY();
 	default:
 		cout << "SEMANTIC ERROR" << endl;
 	}

@@ -68,6 +68,9 @@ void executeCommand()
 	case ORDERBY:
 		executeORDERBY();
 		break;
+	case GROUPBY:
+		executeGROUPBY();
+		break;
 	default:
 		cout << "PARSING ERROR" << endl;
 	}

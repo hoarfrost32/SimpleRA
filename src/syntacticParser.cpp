@@ -73,6 +73,8 @@ bool syntacticParse()
 			return syntacticParseSORT();
 		else if (possibleQueryType == "ORDER")
 			return syntacticParseORDERBY();
+		else if (possibleQueryType == "GROUP")
+			return syntacticParseGROUPBY();
 		else
 		{
 			cout << "SYNTAX ERROR" << endl;
@@ -137,6 +139,16 @@ void ParsedQuery::clear()
 	this->sortResultRelationName = "";
 	this->sortColumnName = "";
 	this->sortRelationName = "";
+
+	this->groupByResultRelationName = "";
+    this->groupByRelationName = "";
+    this->groupByAttribute = "";
+    this->groupByHavingAttribute = "";
+    this->groupByHavingFunc = NO_AGGREGATE_FUNC;
+    this->groupByHavingOperator = NO_BINOP_CLAUSE;
+    this->groupByHavingValue = 0;
+    this->groupByReturnAttribute = "";
+    this->groupByReturnFunc = NO_AGGREGATE_FUNC;
 
 	this->sourceFileName = "";
 	this->rotateMatrixName = "";

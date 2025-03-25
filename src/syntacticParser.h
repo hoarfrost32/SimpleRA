@@ -30,6 +30,7 @@ enum QueryType
 	CROSSTRANSPOSE,
 	CHECKANTISYM,
 	ORDERBY,
+	GROUPBY,
 	UNDETERMINED
 };
 
@@ -56,6 +57,16 @@ enum SelectType
 	COLUMN,
 	INT_LITERAL,
 	NO_SELECT_CLAUSE
+};
+
+enum AggregateFunction
+{
+    MAX_F,
+    MIN_F,
+    COUNT_F,
+    SUM_F,
+    AVG_F,
+    NO_AGGREGATE_FUNC
 };
 
 class ParsedQuery
@@ -128,6 +139,16 @@ public:
 	string orderByColumnName = "";							 // the column to sort on
 	SortingStrategy orderBySortingStrategy = NO_SORT_CLAUSE; // ASC or DESC
 
+	string groupByResultRelationName = "";    // Result table name
+    string groupByRelationName = "";          // Source table name
+    string groupByAttribute = "";             // Grouping attribute
+    string groupByHavingAttribute = "";       // Attribute for HAVING condition
+    AggregateFunction groupByHavingFunc = NO_AGGREGATE_FUNC; // HAVING aggregate function
+    BinaryOperator groupByHavingOperator = NO_BINOP_CLAUSE;  // HAVING binary operator
+    int groupByHavingValue = 0;               // HAVING comparison value
+    string groupByReturnAttribute = "";       // Attribute for RETURN
+    AggregateFunction groupByReturnFunc = NO_AGGREGATE_FUNC; // RETURN aggregate function
+
 	ParsedQuery();
 	void clear();
 };
@@ -154,6 +175,7 @@ bool syntacticParseROTATEMATRIX();
 bool syntacticParseCROSSTRANSPOSE();
 bool syntacticParseCHECKANTISYM();
 bool syntacticParseORDERBY();
+bool syntacticParseGROUPBY();
 
 bool isFileExists(string tableName);
 bool isQueryFile(string fileName);
