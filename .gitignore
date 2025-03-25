@@ -1,4 +1,7 @@
 *.o
+*.nix
+.vscode
+.direnv
+.envrc
 server
 data/temp
-.vscode

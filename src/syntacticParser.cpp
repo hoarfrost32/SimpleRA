@@ -4,7 +4,7 @@ bool syntacticParse()
 {
 	logger.log("syntacticParse");
 	string possibleQueryType = tokenizedQuery[0];
-
+	
 	if (tokenizedQuery.size() < 2)
 	{
 		cout << "SYNTAX ERROR" << endl;
@@ -48,6 +48,8 @@ bool syntacticParse()
 		return syntacticParseROTATEMATRIX();
 	else if (possibleQueryType == "CHECKANTISYM")
 		return syntacticParseCHECKANTISYM();
+	else if (possibleQueryType == "SORT")
+			return syntacticParseSORT();
 	else
 	{
 		string resultantRelationName = possibleQueryType;

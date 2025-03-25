@@ -110,6 +110,7 @@ public:
 	string sortResultRelationName = "";
 	string sortColumnName = "";
 	string sortRelationName = "";
+	vector<pair<string, string>> sortColumns; // Pairs of (columnName, sortDirection)
 
 	string sourceFileName = "";
 
