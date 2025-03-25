@@ -10,6 +10,7 @@
   - [CROSSTRANSPOSE](#crosstranspose)
   - [CHECKANTISYM](#checkantisym)
   - [ORDERBY](#orderby)
+  - [GROUPBY](#groupby)
 - [Assumptions](#assumptions)
 - [Contributions](#contributions)
 
@@ -387,6 +388,79 @@ This produces a new table named `SortedEmp` with rows sorted on `Salary` in asce
 4. **Page Files**: Matrix data is split row‐by‐row into `../data/temp/<matrixName>_Page<i>`. These are removed when the matrix is unloaded (e.g., upon program quit or if the user explicitly removes it).
 5. **Dimension**: The code uses the line count of the CSV to define `n`. There is no separate check that the row length also equals `n`, beyond reading columns in each row line.
 
+## GROUPBY
+
+**Files of interest:**
+
+-   `groupBy.cpp` (new executor file)
+-   `executor.cpp` (calls `executeGROUPBY()`)
+-   `syntacticParser.cpp` (contains `syntacticParseGROUPBY()`)
+-   `semanticParser.cpp` (contains `semanticParseGROUPBY()`)
+-   `syntacticParser.h` (contains `AggregateFunction` enum and GROUP BY fields)
+
+**Logic**
+
+-   **Command syntax**:
+
+    ```plaintext
+    <resultTable> <- GROUP BY <attribute1>
+    FROM <table>
+    HAVING <Aggregate-Func1(attribute2)> <bin-op> <attribute-value>
+    RETURN <Aggregate-Func2(attribute3)>
+    ```
+
+    Where:
+    - `<attribute1>` is the column to group by
+    - `<Aggregate-Func1>` can be MAX, MIN, COUNT, SUM, or AVG
+    - `<bin-op>` can be >, <, >=, <=, or ==
+    - `<attribute-value>` is an integer constant
+    - `<Aggregate-Func2>` can be MAX, MIN, COUNT, SUM, or AVG
+
+-   **Implementation details**:
+
+    1. **Syntactic Parsing** (`syntacticParseGROUPBY()`):
+        - Parses the command into its components
+        - Validates the syntax of the HAVING and RETURN clauses
+        - Checks that the aggregate functions are valid
+        - Extracts the binary operator and comparison value
+
+    2. **Semantic Parsing** (`semanticParseGROUPBY()`):
+        - Verifies the source table exists
+        - Verifies the result table doesn't already exist
+        - Ensures all referenced columns exist in the source table
+
+    3. **Execution** (`executeGROUPBY()`):
+        - First sorts the input table using the existing SORT command on the grouping attribute
+        - Processes the sorted table in a streaming fashion to identify groups
+        - For each group:
+          - Computes the required aggregates for HAVING and RETURN clauses
+          - Filters groups based on the HAVING condition
+          - Writes qualifying groups with computed return values to the result table
+        - Result table contains two columns: the grouping attribute and the return aggregate value
+        - Column headers include the aggregate function name, e.g., "DepartmentID, AVG(Salary)"
+
+**Page Design and Block Access**
+
+-   Utilizes the existing SORT functionality to order rows by the grouping attribute
+-   Processes data in a streaming fashion after sorting, avoiding loading the entire table into memory
+-   Respects the 10-buffer limit by reading and processing one page at a time
+-   Groups are identified by detecting changes in the grouping attribute as the cursor iterates through sorted rows
+
+**Error Handling**
+
+-   Prints "SYNTAX ERROR" for malformed queries
+-   Prints "SEMANTIC ERROR" if the source table doesn't exist
+-   Prints "SEMANTIC ERROR" if the result table already exists
+-   Prints "SEMANTIC ERROR" if referenced columns don't exist in the source table
+-   Handles the case where no groups match the HAVING condition, creating an empty result table
+
+**Sample Usage**
+
+```plaintext
+LOAD EMPLOYEE
+Result <- GROUP BY DepartmentID FROM EMPLOYEE HAVING AVG(Salary) > 30000 RETURN MAX(Salary)
+PRINT Result
+
 # Contributions
 
 Below is an overview of which team member(s) contributed to each command:
@@ -399,3 +473,4 @@ Below is an overview of which team member(s) contributed to each command:
 -   **CROSSTRANSPOSE**: Lakshya Shastri and Harshit Karwal
 -   **CHECKANTISYM**: Lakshya Shastri, Aditya Tejpaul, and Harshit Karwal
 -   **ORDERBY**: Lakshya Shastri
+-   **GROUPBY**: Harshit Karwal
