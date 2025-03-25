@@ -1,18 +1,17 @@
 # Table of Contents
 
-- [Table of Contents](#table-of-contents)
-- [Commands](#commands)
-  - [SOURCE](#source)
-  - [LOAD MATRIX](#load-matrix)
-  - [PRINT MATRIX](#print-matrix)
-  - [EXPORT MATRIX](#export-matrix)
-  - [ROTATE](#rotate)
-  - [CROSSTRANSPOSE](#crosstranspose)
-  - [CHECKANTISYM](#checkantisym)
-  - [ORDERBY](#orderby)
-  - [GROUPBY](#groupby)
-- [Assumptions](#assumptions)
-- [Contributions](#contributions)
+-   [Table of Contents](#table-of-contents)
+-   [Commands](#commands)
+    -   [SOURCE](#source)
+    -   [LOAD MATRIX](#load-matrix)
+    -   [PRINT MATRIX](#print-matrix)
+    -   [EXPORT MATRIX](#export-matrix)
+    -   [ROTATE](#rotate)
+    -   [CROSSTRANSPOSE](#crosstranspose)
+    -   [CHECKANTISYM](#checkantisym)
+    -   [GROUPBY](#groupby)
+-   [Assumptions](#assumptions)
+-   [Contributions](#contributions)
 
 # Commands
 
@@ -313,81 +312,6 @@ The `<filename>` is expected to be in the `/data` directory and to end with a `.
 -   If either matrix is missing or their dimensions differ, prints a semantic error.
 -   If the data mismatch occurs, simply returns “False.”
 
-## ORDERBY
-
-**Files of interest**:
-
--   `orderBy.cpp` (new executor file for your command)
--   `executor.cpp` (calls `executeORDERBY()`)
--   `syntacticParser.cpp` (contains `syntacticParseORDERBY()`)
--   `semanticParser.cpp` (contains `semanticParseORDERBY()`)
-
-**Logic**
-
--   **Command syntax**:
-
-    ```plaintext
-    <newTable> <- ORDER BY <columnName> ASC|DESC ON <existingTable>
-    ```
-
-    -   The `<existingTable>` must already exist in the table catalogue.
-    -   The user supplies a valid `<columnName>` to sort on.
-    -   `ASC` or `DESC` is mandatory, indicating ascending or descending.
-
--   **Implementation details**:
-
-    1. **Syntactic Parsing** (`syntacticParseORDERBY()`):
-
-        - Checks that the tokens match the expected pattern:
-            - 8 tokens total, e.g.
-                ```
-                SortedData <- ORDER BY myColumn ASC ON InputTable
-                ```
-        - Captures the output table name, the source table name, the sort column, and the direction (ASC or DESC).
-        - Sets `parsedQuery.queryType = ORDERBY`.
-
-    2. **Semantic Parsing** (`semanticParseORDERBY()`):
-
-        - Ensures the `<existingTable>` actually exists.
-        - Ensures `<newTable>` does _not_ already exist in the catalogue.
-        - Checks that `<columnName>` is a valid column in `<existingTable>`.
-
-    3. **Execution** (`executeORDERBY()`):
-        - Reads all rows from `<existingTable>` into a vector of rows (`allRows`).
-        - Uses `std::sort` or `std::stable_sort` (with a lambda) to sort `allRows` by the specified column index.
-        - Creates a new table `<newTable>` with the same column schema, writes out sorted rows to `<newTable>`, and calls `blockify()`.
-        - Inserts `<newTable>` into the table catalogue.
-
-**Page Design and Block Access**
-
--   Just like `SORT`, `CROSS`, or `JOIN`, `ORDER BY` uses a purely in‐memory approach: it loads all rows from the source table (via a `Cursor` that reads pages from disk) into a single `vector<vector<int>>`.
--   After sorting, it writes rows into `<newTable>`’s CSV and calls `blockify()` to split them into pages.
-
-**Error Handling**
-
--   If `<existingTable>` does not exist or `<newTable>` already exists, a “SEMANTIC ERROR” is printed.
--   If `<columnName>` is not found in `<existingTable>`, a “SEMANTIC ERROR” is printed.
--   If the user types anything other than `ASC` or `DESC`, a “SYNTAX ERROR” is printed.
--   For extremely large tables (more rows than can fit in memory), this in‐memory sort could run out of RAM. Handling that would require an external sort approach, but for typical assignment/test data, the in‐memory solution suffices.
-
-**Sample Usage**
-
-```plaintext
-LOAD EMPLOYEE
-SortedEmp <- ORDER BY Salary ASC ON EMPLOYEE
-PRINT SortedEmp
-```
-
-This produces a new table named `SortedEmp` with rows sorted on `Salary` in ascending order.
-
-# Assumptions
-
-1. **Integer‐only data**: All matrix CSV files contain strictly integer data in n×n format.
-2. **No partial columns**: Each row in the CSV is assumed to have exactly `n` columns, matching the dimension. Any mismatch causes an error.
-3. **Block Size**: A `BLOCK_SIZE` set to 1 (and scaled to 1KB) is used as the basis for `maxRowsPerBlock`. If the matrix dimension is large, `maxRowsPerBlock` might become `1`.
-4. **Page Files**: Matrix data is split row‐by‐row into `../data/temp/<matrixName>_Page<i>`. These are removed when the matrix is unloaded (e.g., upon program quit or if the user explicitly removes it).
-5. **Dimension**: The code uses the line count of the CSV to define `n`. There is no separate check that the row length also equals `n`, beyond reading columns in each row line.
-
 ## GROUPBY
 
 **Files of interest:**
@@ -410,21 +334,24 @@ This produces a new table named `SortedEmp` with rows sorted on `Salary` in asce
     ```
 
     Where:
-    - `<attribute1>` is the column to group by
-    - `<Aggregate-Func1>` can be MAX, MIN, COUNT, SUM, or AVG
-    - `<bin-op>` can be >, <, >=, <=, or ==
-    - `<attribute-value>` is an integer constant
-    - `<Aggregate-Func2>` can be MAX, MIN, COUNT, SUM, or AVG
+
+    -   `<attribute1>` is the column to group by
+    -   `<Aggregate-Func1>` can be MAX, MIN, COUNT, SUM, or AVG
+    -   `<bin-op>` can be >, <, >=, <=, or ==
+    -   `<attribute-value>` is an integer constant
+    -   `<Aggregate-Func2>` can be MAX, MIN, COUNT, SUM, or AVG
 
 -   **Implementation details**:
 
     1. **Syntactic Parsing** (`syntacticParseGROUPBY()`):
+
         - Parses the command into its components
         - Validates the syntax of the HAVING and RETURN clauses
         - Checks that the aggregate functions are valid
         - Extracts the binary operator and comparison value
 
     2. **Semantic Parsing** (`semanticParseGROUPBY()`):
+
         - Verifies the source table exists
         - Verifies the result table doesn't already exist
         - Ensures all referenced columns exist in the source table
@@ -433,9 +360,9 @@ This produces a new table named `SortedEmp` with rows sorted on `Salary` in asce
         - First sorts the input table using the existing SORT command on the grouping attribute
         - Processes the sorted table in a streaming fashion to identify groups
         - For each group:
-          - Computes the required aggregates for HAVING and RETURN clauses
-          - Filters groups based on the HAVING condition
-          - Writes qualifying groups with computed return values to the result table
+            - Computes the required aggregates for HAVING and RETURN clauses
+            - Filters groups based on the HAVING condition
+            - Writes qualifying groups with computed return values to the result table
         - Result table contains two columns: the grouping attribute and the return aggregate value
         - Column headers include the aggregate function name, e.g., "DepartmentID, AVG(Salary)"
 
@@ -460,6 +387,15 @@ This produces a new table named `SortedEmp` with rows sorted on `Salary` in asce
 LOAD EMPLOYEE
 Result <- GROUP BY DepartmentID FROM EMPLOYEE HAVING AVG(Salary) > 30000 RETURN MAX(Salary)
 PRINT Result
+```
+
+# Assumptions
+
+1. **Integer‐only data**: All matrix CSV files contain strictly integer data in n×n format.
+2. **No partial columns**: Each row in the CSV is assumed to have exactly `n` columns, matching the dimension. Any mismatch causes an error.
+3. **Block Size**: A `BLOCK_SIZE` set to 1 (and scaled to 1KB) is used as the basis for `maxRowsPerBlock`. If the matrix dimension is large, `maxRowsPerBlock` might become `1`.
+4. **Page Files**: Matrix data is split row‐by‐row into `../data/temp/<matrixName>_Page<i>`. These are removed when the matrix is unloaded (e.g., upon program quit or if the user explicitly removes it).
+5. **Dimension**: The code uses the line count of the CSV to define `n`. There is no separate check that the row length also equals `n`, beyond reading columns in each row line.
 
 # Contributions
 
