@@ -1,5 +1,8 @@
 #include "../global.h"
 #include <algorithm>
+#include <string>
+#include <sstream>
+#include <fstream>
 
 /**
  * @brief
@@ -10,64 +13,95 @@
  * in ascending or descending order, then write them into <newTable>.
  */
 
-//-------------------------
-// Syntactic parse is in syntacticParser.cpp
-// Semantic parse is in semanticParser.cpp
-// So here we only do `executeORDERBY()`
-//-------------------------
+extern void executeSORT();
 
 void executeORDERBY()
 {
 	logger.log("executeORDERBY");
 
-	// 1) Grab input table
-	Table sourceTable = *(tableCatalogue.getTable(parsedQuery.orderByRelationName));
+	// 1) Source table
+	Table *sourceTable = tableCatalogue.getTable(parsedQuery.orderByRelationName);
 
-	// 2) Create a new table with same columns, but different name
-	Table *resultTable =
-		new Table(parsedQuery.orderByResultRelationName, sourceTable.columns);
+	// 2) Make sure the new table doesn't already exist (semanticParseORDERBY checks this)
+	//    We'll build it at the end (after sorting).
 
-	// 3) Read all rows from source
-	Cursor cursor = sourceTable.getCursor();
-	vector<int> row = cursor.getNext();
-	vector<vector<int>> allRows;
-	while (!row.empty())
+	// 3) Create a temporary table name. Something guaranteed unique:
+	std::string tempTableName = "_ORDERBY_TEMP_" + parsedQuery.orderByRelationName;
+	int counter = 0;
+	while (tableCatalogue.isTable(tempTableName))
 	{
-		allRows.push_back(row);
-		row = cursor.getNext();
+		// in case of collisions
+		tempTableName = "_ORDERBY_TEMP_" + parsedQuery.orderByRelationName + "_" + std::to_string(++counter);
 	}
 
-	// 4) Figure out which column to sort on
-	int colIndex = sourceTable.getColumnIndex(parsedQuery.orderByColumnName);
+	// 4) Build a new Table object with the same columns, under the temporary name
+	Table *tempTable = new Table(tempTableName, sourceTable->columns);
 
-	// 5) Sort ascending or descending
-	if (parsedQuery.orderBySortingStrategy == ASC)
+	// 5) Copy all rows from sourceTable into tempTable (just like how CROSS or PROJECTION might do)
 	{
-		sort(allRows.begin(), allRows.end(),
-			 [colIndex](auto &A, auto &B)
-			 {
-				 return A[colIndex] < B[colIndex];
-			 });
-	}
-	else
-	{
-		// DESC
-		sort(allRows.begin(), allRows.end(),
-			 [colIndex](auto &A, auto &B)
-			 {
-				 return A[colIndex] > B[colIndex];
-			 });
+		Cursor cursor = sourceTable->getCursor();
+		vector<int> row = cursor.getNext();
+		while (!row.empty())
+		{
+			tempTable->writeRow<int>(row);
+			row = cursor.getNext();
+		}
+		// Now blockify so the temp table is physically laid out in pages
+		tempTable->blockify();
 	}
 
-	// 6) Write rows into result table’s CSV
-	for (auto &sortedRow : allRows)
-		resultTable->writeRow<int>(sortedRow);
+	// 6) Insert this temp table into the catalogue so that "executeSORT()" can find it
+	tableCatalogue.insertTable(tempTable);
 
-	// 7) Blockify the new table (break it into pages)
-	resultTable->blockify();
+	// 7) We want to sort by "parsedQuery.orderByColumnName" in either ASC or DESC.
+	//    But our existing external‐sort logic uses parsedQuery.sortColumns (vector of (colName, "ASC"/"DESC")).
+	//    So temporarily stash and restore any prior sort info, and set the fields as if user typed "SORT tempTable ..."
 
-	// 8) Insert into catalogue
+	// Save old queryType / data
+	auto oldQuery = parsedQuery;
+
+	// Overwrite just enough to call executeSORT()
+	parsedQuery.queryType = SORT;
+	parsedQuery.sortRelationName = tempTableName; // table to sort in place
+	parsedQuery.sortColumns.clear();			  // e.g. [("colName","ASC")]
+	{
+		// Convert enum ASC/DESC to string "ASC" or "DESC"
+		std::string dir = (oldQuery.orderBySortingStrategy == ASC) ? "ASC" : "DESC";
+		parsedQuery.sortColumns.push_back({oldQuery.orderByColumnName, dir});
+	}
+
+	// 8) Call the external mergesort logic
+	executeSORT();
+
+	// (At this point, the temp table named 'tempTableName' is sorted on the desired column.)
+
+	// Restore the old parsedQuery
+	parsedQuery = oldQuery;
+
+	// 9) Now read from the sorted temp table, and write into the final "result" table
+	Table *resultTable = new Table(parsedQuery.orderByResultRelationName,
+								   sourceTable->columns);
+
+	{
+		Cursor sortedCursor(tempTableName, 0);
+		vector<int> sortedRow = sortedCursor.getNext();
+		while (!sortedRow.empty())
+		{
+			resultTable->writeRow<int>(sortedRow);
+			sortedRow = sortedCursor.getNext();
+		}
+		resultTable->blockify();
+	}
+
+	// 10) Insert the final table into the catalogue
 	tableCatalogue.insertTable(resultTable);
+
+	// 11) Clean up the temp table
+	tableCatalogue.deleteTable(tempTableName);
+
+	cout << "ORDER BY on table \"" << parsedQuery.orderByRelationName << "\" complete."
+		 << "\nNew table \"" << parsedQuery.orderByResultRelationName << "\" created, sorted by "
+		 << parsedQuery.orderByColumnName << "." << endl;
 }
 
 bool syntacticParseORDERBY()
