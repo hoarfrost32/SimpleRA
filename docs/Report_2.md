@@ -69,7 +69,7 @@
 
 ```plaintext
 LOAD EMPLOYEE
-SORT EMPLOYEE BY GENDER, SALARY IN ASC, DESC
+SORT EMPLOYEE BY Sex, Salary IN ASC, DESC
 PRINT EMPLOYEE
 ```
 
@@ -216,7 +216,7 @@ This produces a new table named `SortedEmp` with rows sorted on `Salary` in asce
 
 ```plaintext
 LOAD EMPLOYEE
-Result <- GROUP BY DepartmentID FROM EMPLOYEE HAVING AVG(Salary) > 30000 RETURN MAX(Salary)
+Result <- GROUP BY Super_ssn FROM EMPLOYEE HAVING AVG(Salary) > 30000 RETURN MAX(Salary)
 PRINT Result
 ```
 
@@ -300,6 +300,7 @@ PRINT JoinedEmpDept
 
 Below is an overview of which team member(s) contributed to each command:
 
+-   **SORT**: Aditya Tejpaul
 -   **ORDERBY**: Lakshya Shastri
 -   **GROUPBY**: Harshit Karwal
 -   **PARTIAL HASH JOIN**: Lakshya Shastri, Harshit Karwal, Aditya Tejpaul
