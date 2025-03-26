@@ -1,8 +1,86 @@
+## SORT
+
+**Files of interest**:
+
+-   `sort.cpp` (implements the SORT command functionality)
+-   `executor.cpp` (calls `executeSORT()`)
+-   `syntacticParser.cpp` (contains `syntacticParseSORT()`)
+-   `semanticParser.cpp` (contains `semanticParseSORT()`)
+
+**Logic**
+
+-   **Command syntax**:
+
+    ```plaintext
+    SORT <table-name> BY <col1>,<col2>,<col3> IN <ASC|DESC>,<ASC|DESC>,<ASC|DESC>
+    ```
+
+    -   The `<table-name>` must already exist in the table catalogue.
+    -   Users can specify multiple columns to sort by, establishing a priority order (leftmost column has highest priority).
+    -   For each column, users must specify sort direction (ASC for ascending, DESC for descending).
+    -   The number of columns must match the number of sort directions.
+
+-   **Implementation details**:
+
+    1. **Syntactic Parsing** (`syntacticParseSORT()`):
+
+        - Verifies the query matches the pattern with "SORT", "BY", and "IN" keywords properly placed.
+        - Parses the columns between "BY" and "IN", handling comma-separated lists.
+        - Ensures that each direction specified after "IN" is either "ASC" or "DESC".
+        - Verifies the number of columns matches the number of sort directions.
+        - Stores column-direction pairs for later processing.
+
+    2. **Semantic Parsing** (`semanticParseSORT()`):
+
+        - Ensures the table to be sorted exists in the catalogue.
+        - Checks that all specified columns exist in the table.
+        - Returns error messages for non-existent tables or columns.
+
+    3. **Execution** (`executeSORT()`):
+        - Implements a **two-phase external merge sort** algorithm, maintaining a 10-block memory constraint:
+            1. **Phase 1 - Initial runs creation**:
+                - Reads chunks of rows (up to 10 blocks worth) from the table.
+                - Sorts each chunk in memory using the specified columns and directions.
+                - Writes each sorted chunk to a temporary run file.
+            2. **Phase 2 - Merge phase**:
+                - Iteratively merges up to 9 runs at a time (reserving 1 buffer for output).
+                - Uses a priority queue approach to efficiently merge multiple sorted streams.
+                - Continues merging until only one run remains (the final sorted table).
+        - The final sorted run replaces the original table content, maintaining the same table name and schema.
+        - Performs an in-place sort, avoiding the creation of a new table.
+
+**Page Design and Block Access**
+
+-   The implementation strictly adheres to the 10-block memory constraint:
+    - During the initial run creation, loads at most 10 blocks of data at once.
+    - During merge phase, uses at most 9 blocks for input and 1 for output.
+-   Uses temporary run files to store intermediate results, which are stored as tables in the catalogue.
+-   For very large tables, it may require multiple merge passes, each time combining up to 9 runs until only one remains.
+-   When writing the final sorted data back to the original table, it clears all existing blocks and regenerates them with the sorted content.
+
+**Error Handling**
+
+-   Prints "SYNTAX ERROR" if the command structure is invalid or if an unsupported sort direction is specified.
+-   Prints "SEMANTIC ERROR" if the table doesn't exist or if any of the specified columns don't exist in the table.
+-   Handles edge cases like empty tables gracefully.
+-   Ensures cleanup of temporary run files, even if the sort operation encounters an error.
+
+**Sample Usage**
+
+```plaintext
+LOAD EMPLOYEE
+SORT EMPLOYEE BY GENDER, SALARY IN ASC, DESC
+PRINT EMPLOYEE
+```
+
+This sorts the EMPLOYEE table first by GENDER in ascending order, then by SALARY in descending order within each gender group. The operation modifies the table in-place, so the sorted result is available under the original table name (EMPLOYEE).
+
+
 ## ORDERBY
 
 **Files of interest**:
 
--   `orderBy.cpp` (new executor file for your command)
+-   `orderBy.cpp` (new executor file for the command)
 -   `executor.cpp` (calls `executeORDERBY()`)
 -   `syntacticParser.cpp` (contains `syntacticParseORDERBY()`)
 -   `semanticParser.cpp` (contains `semanticParseORDERBY()`)
