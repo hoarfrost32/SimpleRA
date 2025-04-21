@@ -30,45 +30,78 @@ bool syntacticParseUPDATE()
 {
 	logger.log("syntacticParseUPDATE");
 
-	if (tokenizedQuery.size() != 10 ||
-		tokenizedQuery[2] != "SET" ||
-		tokenizedQuery[4] != "=" || // index 4 is the “=”
-		tokenizedQuery[6] != "WHERE")
+	/* Grammar we accept:
+	   UPDATE table_name WHERE col1 <binop> int_literal SET col2 = int_literal
+	   Minimum tokens = 10  (UPDATE T WHERE c1 == 5 SET c2 = 7)               */
+
+	if (tokenizedQuery.size() < 10 ||
+		tokenizedQuery[2] != "WHERE")
 	{
 		cout << "SYNTAX ERROR" << endl;
 		return false;
 	}
 
-	/* left side */
 	parsedQuery.queryType = UPDATE;
 	parsedQuery.updateRelationName = tokenizedQuery[1];
-	parsedQuery.updateTargetColumn = tokenizedQuery[3];
 
-	/* right side */
+	/* -------- condition part -------- */
+	parsedQuery.updateCondColumn = tokenizedQuery[3];
+
+	string binOpTok = tokenizedQuery[4];
+	if (binOpTok == "<")
+		parsedQuery.updateCondOperator = LESS_THAN;
+	else if (binOpTok == ">")
+		parsedQuery.updateCondOperator = GREATER_THAN;
+	else if (binOpTok == "<=")
+		parsedQuery.updateCondOperator = LEQ;
+	else if (binOpTok == ">=")
+		parsedQuery.updateCondOperator = GEQ;
+	else if (binOpTok == "==")
+		parsedQuery.updateCondOperator = EQUAL;
+	else if (binOpTok == "!=")
+		parsedQuery.updateCondOperator = NOT_EQUAL;
+	else
+	{
+		cout << "SYNTAX ERROR" << endl;
+		return false;
+	}
+
+	/* RHS of condition must be int literal */
 	regex numeric("[-]?[0-9]+");
 	if (!regex_match(tokenizedQuery[5], numeric))
 	{
 		cout << "SYNTAX ERROR" << endl;
 		return false;
 	}
-	parsedQuery.updateOpType = SET_LITERAL;
-	parsedQuery.updateLiteral = stoi(tokenizedQuery[5]);
+	parsedQuery.updateCondValue = stoi(tokenizedQuery[5]);
 
-	/* WHERE clause */
-	parsedQuery.updateCondColumn = tokenizedQuery[7];
-
-	if (!parseBinOp(tokenizedQuery[8], parsedQuery.updateCondOperator))
+	/* -------- SET part -------- */
+	size_t setPos = 6;
+	if (tokenizedQuery[setPos] != "SET" ||
+		setPos + 3 >= tokenizedQuery.size() ||
+		tokenizedQuery[setPos + 2] != "=")
 	{
 		cout << "SYNTAX ERROR" << endl;
 		return false;
 	}
 
-	if (!regex_match(tokenizedQuery[9], numeric))
+	parsedQuery.updateTargetColumn = tokenizedQuery[setPos + 1];
+
+	/* literal after '=' */
+	if (!regex_match(tokenizedQuery[setPos + 3], numeric))
 	{
 		cout << "SYNTAX ERROR" << endl;
 		return false;
 	}
-	parsedQuery.updateCondValue = stoi(tokenizedQuery[9]);
+	parsedQuery.updateLiteral = stoi(tokenizedQuery[setPos + 3]);
+
+	/* extra tokens? */
+	if (setPos + 4 != tokenizedQuery.size())
+	{
+		cout << "SYNTAX ERROR" << endl;
+		return false;
+	}
+
 	return true;
 }
 

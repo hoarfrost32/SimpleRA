@@ -21,22 +21,23 @@ TableCatalogue::~insertTable
 ParseQuery::clear
 
 Reading New Command: 
-INSERT INTO EMPLOYEE ( BadCol = 1 )
+UPDATE EMPLOYEE WHERE BadCol == 5 SET Salary = 100
 doCommand
 syntacticParse
-syntacticParseINSERT
+syntacticParseUPDATE
 semanticParse
-semanticParseINSERT
+semanticParseUPDATE
 TableCatalogue::isTable
 TableCatalogue::getTable
+Table::isColumn
 Table::isColumn
 ParseQuery::clear
 
 Reading New Command: 
-INSERT INTO EMPLOYEE ( )
+UPDATE EMPLOYEE WHERE Ssn == X SET Salary = 10
 doCommand
 syntacticParse
-syntacticParseINSERT
+syntacticParseUPDATE
 ParseQuery::clear
 
 Reading New Command: 
