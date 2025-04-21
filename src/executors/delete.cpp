@@ -78,4 +78,52 @@ bool semanticParseDELETE()
 	return true;
 }
 
-void executeDELETE() { cout << "DELETE not implemented yet.\n"; }
+static void writeIntRow(ofstream &fout, const vector<int> &row)
+{
+	for (size_t c = 0; c < row.size(); ++c)
+	{
+		if (c)
+			fout << ", ";
+		fout << row[c];
+	}
+	fout << '\n';
+}
+
+void executeDELETE()
+{
+	logger.log("executeDELETE");
+
+	Table *table = tableCatalogue.getTable(parsedQuery.deleteRelationName);
+	int condIndex = table->getColumnIndex(parsedQuery.deleteCondColumn);
+
+	string tmpCSV = table->sourceFileName + ".del";
+	ofstream fout(tmpCSV, ios::trunc);
+
+	/* header */
+	table->writeRow<string>(table->columns, fout);
+
+	Cursor cursor = table->getCursor();
+	vector<int> row = cursor.getNext();
+	long long rowsDeleted = 0;
+
+	while (!row.empty())
+	{
+		bool match = evaluateBinOp(row[condIndex], parsedQuery.deleteCondValue,
+								   parsedQuery.deleteCondOperator);
+		if (!match)
+			writeIntRow(fout, row);
+		else
+			rowsDeleted++;
+
+		row = cursor.getNext();
+	}
+	fout.close();
+
+	/* overwrite */
+	remove(table->sourceFileName.c_str());
+	rename(tmpCSV.c_str(), table->sourceFileName.c_str());
+
+	table->reload();
+
+	cout << rowsDeleted << " row(s) deleted from \"" << table->tableName << "\"\n";
+}

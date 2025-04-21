@@ -332,3 +332,24 @@ int Table::getColumnIndex(string columnName)
 			return columnCounter;
 	}
 }
+
+/**
+ * @brief Re‑reads the CSV (sourceFileName) and rebuilds all page files +
+ *        statistics.  Assumes the CSV already contains the latest data.
+ */
+bool Table::reload()
+{
+	logger.log("Table::reload");
+	/* Remove old page files */
+	this->unload(); // deletes ../data/temp/<name>_Page<i>
+
+	/* Reset in‑memory statistics */
+	this->rowCount = 0;
+	this->blockCount = 0;
+	this->rowsPerBlockCount.clear();
+	this->distinctValuesPerColumnCount.clear();
+	this->distinctValuesInColumns.clear();
+
+	/* blockify() will:  extractColumnNames() – NO (header unchanged)  */
+	return this->blockify();
+}

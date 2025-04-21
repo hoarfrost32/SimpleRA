@@ -2,29 +2,203 @@ BufferManager::BufferManager
 ParseQuery::clear
 
 Reading New Command: 
-INSERT INTO foo VALUES 1 2 3
+LOAD EMPLOYEE
+doCommand
+syntacticParse
+syntacticParseLOAD
+semanticParse
+semanticParseLOAD
+TableCatalogue::isTable
+executeLOAD
+Table::Table
+Table::load
+Table::extractColumnNames
+Table::blockify
+BufferManager::writePage
+Page::Page
+Page::writePage
+TableCatalogue::~insertTable
+ParseQuery::clear
+
+Reading New Command: 
+INSERT INTO EMPLOYEE VALUES 9 920101 0 60000 7 4
 doCommand
 syntacticParse
 syntacticParseINSERT
 semanticParse
+semanticParseINSERT
+TableCatalogue::isTable
+TableCatalogue::getTable
+executeINSERT
+TableCatalogue::getTable
+Table::printRow
+Table::printRow
+Table::reload
+Table::~unload
+BufferManager::deleteFile
+BufferManager::deleteFile: Success
+Table::isPermanent
+Table::blockify
+BufferManager::writePage
+Page::Page
+Page::writePage
 ParseQuery::clear
 
 Reading New Command: 
-UPDATE bar SET x = 5 WHERE y == 10
+UPDATE EMPLOYEE SET Salary = 45000 WHERE Ssn == 2
 doCommand
 syntacticParse
 syntacticParseUPDATE
 semanticParse
+semanticParseUPDATE
+TableCatalogue::isTable
+TableCatalogue::getTable
+Table::isColumn
+Table::isColumn
+executeUPDATE
+TableCatalogue::getTable
+Table::getColumnIndex
+Table::getColumnIndex
+Table::printRow
+Table::getCursor
+Cursor::Cursor
+BufferManager::getPage
+BufferManager::inPool
+BufferManager::insertIntoPool
+Page::Page
+TableCatalogue::isTable
+TableCatalogue::getTable
+Cursor::geNext
+Page::getRow
+Cursor::geNext
+Page::getRow
+Cursor::geNext
+Page::getRow
+Cursor::geNext
+Page::getRow
+Cursor::geNext
+Page::getRow
+Cursor::geNext
+Page::getRow
+Cursor::geNext
+Page::getRow
+Cursor::geNext
+Page::getRow
+Cursor::geNext
+Page::getRow
+Cursor::geNext
+Page::getRow
+TableCatalogue::getTable
+Table::getNext
+Table::reload
+Table::~unload
+BufferManager::deleteFile
+BufferManager::deleteFile: Success
+Table::isPermanent
+Table::blockify
+BufferManager::writePage
+Page::Page
+Page::writePage
 ParseQuery::clear
 
 Reading New Command: 
-DELETE FROM emp WHERE Salary > 40000
+DELETE FROM EMPLOYEE WHERE Ssn == 3
 doCommand
 syntacticParse
 syntacticParseDELETE
 semanticParse
+semanticParseDELETE
+TableCatalogue::isTable
+TableCatalogue::getTable
+Table::isColumn
+executeDELETE
+TableCatalogue::getTable
+Table::getColumnIndex
+Table::printRow
+Table::getCursor
+Cursor::Cursor
+BufferManager::getPage
+BufferManager::inPool
+BufferManager::getFromPool
+Cursor::geNext
+Page::getRow
+Cursor::geNext
+Page::getRow
+Cursor::geNext
+Page::getRow
+Cursor::geNext
+Page::getRow
+Cursor::geNext
+Page::getRow
+Cursor::geNext
+Page::getRow
+Cursor::geNext
+Page::getRow
+Cursor::geNext
+Page::getRow
+Cursor::geNext
+Page::getRow
+Cursor::geNext
+Page::getRow
+TableCatalogue::getTable
+Table::getNext
+Table::reload
+Table::~unload
+BufferManager::deleteFile
+BufferManager::deleteFile: Success
+Table::isPermanent
+Table::blockify
+BufferManager::writePage
+Page::Page
+Page::writePage
+ParseQuery::clear
+
+Reading New Command: 
+PRINT EMPLOYEE
+doCommand
+syntacticParse
+syntacticParsePRINT
+semanticParse
+semanticParsePRINT
+TableCatalogue::isTable
+executePRINT
+TableCatalogue::getTable
+Table::print
+Table::printRow
+Cursor::Cursor
+BufferManager::getPage
+BufferManager::inPool
+BufferManager::getFromPool
+Cursor::geNext
+Page::getRow
+Table::printRow
+Cursor::geNext
+Page::getRow
+Table::printRow
+Cursor::geNext
+Page::getRow
+Table::printRow
+Cursor::geNext
+Page::getRow
+Table::printRow
+Cursor::geNext
+Page::getRow
+Table::printRow
+Cursor::geNext
+Page::getRow
+Table::printRow
+Cursor::geNext
+Page::getRow
+Table::printRow
+Cursor::geNext
+Page::getRow
+Table::printRow
 ParseQuery::clear
 
 Reading New Command: 
 QUIT
 TableCatalogue::~TableCatalogue
+Table::~unload
+BufferManager::deleteFile
+BufferManager::deleteFile: Success
+Table::isPermanent

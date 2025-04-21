@@ -102,4 +102,57 @@ bool semanticParseUPDATE()
 	return true;
 }
 
-void executeUPDATE() { cout << "UPDATE not implemented yet.\n"; }
+static void writeIntRow(ofstream &fout, const vector<int> &row)
+{
+	for (size_t c = 0; c < row.size(); ++c)
+	{
+		if (c)
+			fout << ", ";
+		fout << row[c];
+	}
+	fout << '\n';
+}
+
+void executeUPDATE()
+{
+	logger.log("executeUPDATE");
+
+	Table *table = tableCatalogue.getTable(parsedQuery.updateRelationName);
+	int tgtIndex = table->getColumnIndex(parsedQuery.updateTargetColumn);
+	int condIndex = table->getColumnIndex(parsedQuery.updateCondColumn);
+
+	/* --- create temp csv -------------------------------------------- */
+	string tmpCSV = table->sourceFileName + ".upd";
+	ofstream fout(tmpCSV, ios::trunc);
+
+	/* header */
+	table->writeRow<string>(table->columns, fout);
+
+	/* iterate rows */
+	Cursor cursor = table->getCursor();
+	vector<int> row = cursor.getNext();
+	long long rowsTouched = 0;
+
+	while (!row.empty())
+	{
+		if (evaluateBinOp(row[condIndex], parsedQuery.updateCondValue,
+						  parsedQuery.updateCondOperator))
+		{
+			/* apply operation – only SET_LITERAL in Phase 3 */
+			row[tgtIndex] = parsedQuery.updateLiteral;
+			rowsTouched++;
+		}
+		writeIntRow(fout, row);
+		row = cursor.getNext();
+	}
+	fout.close();
+
+	/* swap files */
+	remove(table->sourceFileName.c_str());
+	rename(tmpCSV.c_str(), table->sourceFileName.c_str());
+
+	/* rebuild pages */
+	table->reload();
+
+	cout << rowsTouched << " row(s) updated in \"" << table->tableName << "\"\n";
+}

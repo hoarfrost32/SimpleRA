@@ -58,4 +58,21 @@ bool semanticParseINSERT()
 	return true; // all good
 }
 
-void executeINSERT() { cout << "INSERT not implemented yet.\n"; }
+void executeINSERT()
+{
+	logger.log("executeINSERT");
+
+	Table *table = tableCatalogue.getTable(parsedQuery.insertRelationName);
+
+	/* 1.  Append the row to the CSV */
+	table->writeRow<int>(parsedQuery.insertValues); // appends to temp CSV
+
+	/* 2.  Re‑paginate & refresh stats */
+	if (!table->reload())
+	{
+		cout << "Error while reloading table after INSERT.\n";
+		return;
+	}
+
+	cout << "1 row inserted into \"" << table->tableName << "\"\n";
+}

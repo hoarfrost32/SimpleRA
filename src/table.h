@@ -52,6 +52,7 @@ public:
 	bool isPermanent();
 	void getNextPage(Cursor *cursor);
 	Cursor getCursor();
+	bool reload();
 	int getColumnIndex(string columnName);
 	void unload();
 
