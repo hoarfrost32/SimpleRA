@@ -28,5 +28,8 @@ bool semanticParseCROSSTRANSPOSE();
 bool semanticParseCHECKANTISYM();
 bool semanticParseORDERBY();
 bool semanticParseGROUPBY();
+bool semanticParseINSERT();
+bool semanticParseUPDATE();
+bool semanticParseDELETE();
 
 #endif

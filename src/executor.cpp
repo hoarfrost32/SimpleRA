@@ -71,6 +71,15 @@ void executeCommand()
 	case GROUPBY:
 		executeGROUPBY();
 		break;
+	case INSERT:
+		executeINSERT();
+		break;
+	case UPDATE:
+		executeUPDATE();
+		break;
+	case DELETE:
+		executeDELETE();
+		break;
 	default:
 		cout << "PARSING ERROR" << endl;
 	}
