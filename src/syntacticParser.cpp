@@ -157,9 +157,8 @@ void ParsedQuery::clear()
 	this->sourceFileName = "";
 	this->rotateMatrixName = "";
 
-	/* INSERT */
-	insertRelationName = "";
-	insertValues.clear();
+	this->insertRelationName.clear();
+	this->insertColumnValueMap.clear();
 
 	/* UPDATE */
 	updateRelationName = "";

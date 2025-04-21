@@ -1,5 +1,6 @@
 #include "../global.h"
 #include <regex>
+#include <unordered_map>
 
 /**
  * Grammar (comma already stripped by tokenizer):
@@ -10,9 +11,15 @@
 bool syntacticParseINSERT()
 {
 	logger.log("syntacticParseINSERT");
-	if (tokenizedQuery.size() < 6 ||
+
+	/* Expected token pattern:
+	   0 1     2           3 4 ... n‑2 n‑1
+	   INSERT INTO <table> ( col = val , col = val … )                */
+
+	if (tokenizedQuery.size() < 8 || // minimal length
 		tokenizedQuery[1] != "INTO" ||
-		tokenizedQuery[3] != "VALUES")
+		tokenizedQuery[3] != "(" ||
+		tokenizedQuery.back() != ")")
 	{
 		cout << "SYNTAX ERROR" << endl;
 		return false;
@@ -20,27 +27,59 @@ bool syntacticParseINSERT()
 
 	parsedQuery.queryType = INSERT;
 	parsedQuery.insertRelationName = tokenizedQuery[2];
+	parsedQuery.insertColumnValueMap.clear();
 
-	parsedQuery.insertValues.clear();
-	regex numeric("[-]?[0-9]+");
-	for (size_t i = 4; i < tokenizedQuery.size(); i++)
+	/* Scan tokens between '(' and ')' */
+	size_t i = 4;
+	while (i < tokenizedQuery.size() - 1) // stop before ')'
 	{
-		if (!regex_match(tokenizedQuery[i], numeric))
+		string col = tokenizedQuery[i];
+		if (col == ",")
+		{
+			i++;
+			continue;
+		}
+
+		/* expect: col = val */
+		if (i + 2 >= tokenizedQuery.size() ||
+			tokenizedQuery[i + 1] != "=")
 		{
 			cout << "SYNTAX ERROR" << endl;
 			return false;
 		}
-		parsedQuery.insertValues.push_back(stoi(tokenizedQuery[i]));
+
+		/* numeric literal? */
+		regex numeric("[-]?[0-9]+");
+		string valTok = tokenizedQuery[i + 2];
+		if (!regex_match(valTok, numeric))
+		{
+			cout << "SYNTAX ERROR" << endl;
+			return false;
+		}
+
+		int value = stoi(valTok);
+		parsedQuery.insertColumnValueMap[col] = value;
+
+		i += 3;							   // jump past "col = val"
+		if (i < tokenizedQuery.size() - 1) // if not at ')'
+		{
+			if (tokenizedQuery[i] == ",")
+				i++; // consume comma
+		}
+	}
+
+	if (parsedQuery.insertColumnValueMap.empty())
+	{
+		cout << "SYNTAX ERROR" << endl;
+		return false;
 	}
 	return true;
 }
 
-/* semantic & execute still stub */
 bool semanticParseINSERT()
 {
 	logger.log("semanticParseINSERT");
 
-	/* table must exist */
 	if (!tableCatalogue.isTable(parsedQuery.insertRelationName))
 	{
 		cout << "SEMANTIC ERROR: Relation doesn't exist" << endl;
@@ -49,13 +88,32 @@ bool semanticParseINSERT()
 
 	Table *table = tableCatalogue.getTable(parsedQuery.insertRelationName);
 
-	/* value count must match column count */
-	if (parsedQuery.insertValues.size() != table->columnCount)
+	/* Each referenced column must exist */
+	for (auto &kv : parsedQuery.insertColumnValueMap)
 	{
-		cout << "SEMANTIC ERROR: Column count mismatch" << endl;
-		return false;
+		if (!table->isColumn(kv.first))
+		{
+			cout << "SEMANTIC ERROR: Column " << kv.first
+				 << " doesn't exist in relation" << endl;
+			return false;
+		}
 	}
-	return true; // all good
+	return true;
+}
+
+static void buildRow(const Table *table,
+					 const std::unordered_map<string, int> &colVal,
+					 std::vector<int> &outRow)
+{
+	outRow.assign(table->columnCount, 0); // default 0
+
+	for (size_t c = 0; c < table->columnCount; ++c)
+	{
+		const string &colName = table->columns[c];
+		auto it = colVal.find(colName);
+		if (it != colVal.end())
+			outRow[c] = it->second;
+	}
 }
 
 void executeINSERT()
@@ -64,15 +122,15 @@ void executeINSERT()
 
 	Table *table = tableCatalogue.getTable(parsedQuery.insertRelationName);
 
-	/* 1.  Append the row to the CSV */
-	table->writeRow<int>(parsedQuery.insertValues); // appends to temp CSV
+	/* Build full row in table‑schema order */
+	vector<int> newRow;
+	buildRow(table, parsedQuery.insertColumnValueMap, newRow);
 
-	/* 2.  Re‑paginate & refresh stats */
-	if (!table->reload())
-	{
-		cout << "Error while reloading table after INSERT.\n";
-		return;
-	}
+	/* Append row to CSV */
+	table->writeRow<int>(newRow);
+
+	/* Reblockify for later operators */
+	table->reload();
 
 	cout << "1 row inserted into \"" << table->tableName << "\"\n";
 }

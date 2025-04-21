@@ -4,6 +4,7 @@
 #pragma once
 #include "tableCatalogue.h"
 #include "matrixCatalogue.h"
+#include <unordered_map>
 
 using namespace std;
 
@@ -162,7 +163,7 @@ public:
 
 	/* ---------- INSERT ---------- */
 	string insertRelationName = "";
-	vector<int> insertValues;
+	std::unordered_map<string, int> insertColumnValueMap;
 
 	/* ---------- UPDATE ---------- */
 	string updateRelationName = "";
