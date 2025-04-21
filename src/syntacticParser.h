@@ -4,6 +4,7 @@
 #pragma once
 #include "tableCatalogue.h"
 #include "matrixCatalogue.h"
+#include <unordered_map>
 
 using namespace std;
 
@@ -60,6 +61,14 @@ enum SelectType
 	COLUMN,
 	INT_LITERAL,
 	NO_SELECT_CLAUSE
+};
+
+enum UpdateOpType
+{
+	SET_LITERAL, // col = <int>
+	ADD_LITERAL, // col = col + <int>
+	SUB_LITERAL, // col = col - <int>
+	NO_UPDATE_OP
 };
 
 enum AggregateFunction
@@ -151,6 +160,25 @@ public:
 	int groupByHavingValue = 0;								 // HAVING comparison value
 	string groupByReturnAttribute = "";						 // Attribute for RETURN
 	AggregateFunction groupByReturnFunc = NO_AGGREGATE_FUNC; // RETURN aggregate function
+
+	/* ---------- INSERT ---------- */
+	string insertRelationName = "";
+	std::unordered_map<string, int> insertColumnValueMap;
+
+	/* ---------- UPDATE ---------- */
+	string updateRelationName = "";
+	string updateTargetColumn = "";
+	UpdateOpType updateOpType = NO_UPDATE_OP;
+	int updateLiteral = 0; // meaning depends on opType
+	string updateCondColumn = "";
+	BinaryOperator updateCondOperator = NO_BINOP_CLAUSE;
+	int updateCondValue = 0;
+
+	/* ---------- DELETE ---------- */
+	string deleteRelationName = "";
+	string deleteCondColumn = "";
+	BinaryOperator deleteCondOperator = NO_BINOP_CLAUSE;
+	int deleteCondValue = 0;
 
 	ParsedQuery();
 	void clear();

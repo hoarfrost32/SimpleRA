@@ -4,7 +4,7 @@ bool syntacticParse()
 {
 	logger.log("syntacticParse");
 	string possibleQueryType = tokenizedQuery[0];
-	
+
 	if (tokenizedQuery.size() < 2)
 	{
 		cout << "SYNTAX ERROR" << endl;
@@ -15,6 +15,12 @@ bool syntacticParse()
 		return syntacticParseCLEAR();
 	else if (possibleQueryType == "INDEX")
 		return syntacticParseINDEX();
+	else if (possibleQueryType == "INSERT")
+		return syntacticParseINSERT();
+	else if (possibleQueryType == "UPDATE")
+		return syntacticParseUPDATE();
+	else if (possibleQueryType == "DELETE")
+		return syntacticParseDELETE();
 	else if (possibleQueryType == "LIST")
 		return syntacticParseLIST();
 	else if (possibleQueryType == "CROSSTRANSPOSE")
@@ -49,7 +55,7 @@ bool syntacticParse()
 	else if (possibleQueryType == "CHECKANTISYM")
 		return syntacticParseCHECKANTISYM();
 	else if (possibleQueryType == "SORT")
-			return syntacticParseSORT();
+		return syntacticParseSORT();
 	else
 	{
 		string resultantRelationName = possibleQueryType;
@@ -139,17 +145,35 @@ void ParsedQuery::clear()
 	this->sortRelationName = "";
 
 	this->groupByResultRelationName = "";
-    this->groupByRelationName = "";
-    this->groupByAttribute = "";
-    this->groupByHavingAttribute = "";
-    this->groupByHavingFunc = NO_AGGREGATE_FUNC;
-    this->groupByHavingOperator = NO_BINOP_CLAUSE;
-    this->groupByHavingValue = 0;
-    this->groupByReturnAttribute = "";
-    this->groupByReturnFunc = NO_AGGREGATE_FUNC;
+	this->groupByRelationName = "";
+	this->groupByAttribute = "";
+	this->groupByHavingAttribute = "";
+	this->groupByHavingFunc = NO_AGGREGATE_FUNC;
+	this->groupByHavingOperator = NO_BINOP_CLAUSE;
+	this->groupByHavingValue = 0;
+	this->groupByReturnAttribute = "";
+	this->groupByReturnFunc = NO_AGGREGATE_FUNC;
 
 	this->sourceFileName = "";
 	this->rotateMatrixName = "";
+
+	this->insertRelationName.clear();
+	this->insertColumnValueMap.clear();
+
+	/* UPDATE */
+	updateRelationName = "";
+	updateTargetColumn = "";
+	updateOpType = NO_UPDATE_OP;
+	updateLiteral = 0;
+	updateCondColumn = "";
+	updateCondOperator = NO_BINOP_CLAUSE;
+	updateCondValue = 0;
+
+	/* DELETE */
+	deleteRelationName = "";
+	deleteCondColumn = "";
+	deleteCondOperator = NO_BINOP_CLAUSE;
+	deleteCondValue = 0;
 }
 
 /**
