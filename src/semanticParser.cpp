@@ -50,6 +50,12 @@ bool semanticParse()
 		return semanticParseORDERBY();
 	case GROUPBY:
 		return semanticParseGROUPBY();
+	case INSERT:
+		return semanticParseINSERT();
+	case UPDATE:
+		return semanticParseUPDATE();
+	case DELETE:
+		return semanticParseDELETE();
 	default:
 		cout << "SEMANTIC ERROR" << endl;
 	}

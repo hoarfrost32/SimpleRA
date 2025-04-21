@@ -58,5 +58,24 @@ bool syntacticParseDELETE()
 }
 
 /* keep semantic & executor dummy */
-bool semanticParseDELETE() { return false; }
+bool semanticParseDELETE()
+{
+	logger.log("semanticParseDELETE");
+
+	if (!tableCatalogue.isTable(parsedQuery.deleteRelationName))
+	{
+		cout << "SEMANTIC ERROR: Relation doesn't exist" << endl;
+		return false;
+	}
+
+	Table *table = tableCatalogue.getTable(parsedQuery.deleteRelationName);
+
+	if (!table->isColumn(parsedQuery.deleteCondColumn))
+	{
+		cout << "SEMANTIC ERROR: Condition column not found" << endl;
+		return false;
+	}
+	return true;
+}
+
 void executeDELETE() { cout << "DELETE not implemented yet.\n"; }

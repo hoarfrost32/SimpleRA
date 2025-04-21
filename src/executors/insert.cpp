@@ -36,5 +36,26 @@ bool syntacticParseINSERT()
 }
 
 /* semantic & execute still stub */
-bool semanticParseINSERT() { return false; }
+bool semanticParseINSERT()
+{
+	logger.log("semanticParseINSERT");
+
+	/* table must exist */
+	if (!tableCatalogue.isTable(parsedQuery.insertRelationName))
+	{
+		cout << "SEMANTIC ERROR: Relation doesn't exist" << endl;
+		return false;
+	}
+
+	Table *table = tableCatalogue.getTable(parsedQuery.insertRelationName);
+
+	/* value count must match column count */
+	if (parsedQuery.insertValues.size() != table->columnCount)
+	{
+		cout << "SEMANTIC ERROR: Column count mismatch" << endl;
+		return false;
+	}
+	return true; // all good
+}
+
 void executeINSERT() { cout << "INSERT not implemented yet.\n"; }

@@ -73,5 +73,33 @@ bool syntacticParseUPDATE()
 }
 
 /* semantic & executor remain dummy */
-bool semanticParseUPDATE() { return false; }
+bool semanticParseUPDATE()
+{
+	logger.log("semanticParseUPDATE");
+
+	/* table must exist */
+	if (!tableCatalogue.isTable(parsedQuery.updateRelationName))
+	{
+		cout << "SEMANTIC ERROR: Relation doesn't exist" << endl;
+		return false;
+	}
+
+	Table *table = tableCatalogue.getTable(parsedQuery.updateRelationName);
+
+	/* target column must exist */
+	if (!table->isColumn(parsedQuery.updateTargetColumn))
+	{
+		cout << "SEMANTIC ERROR: Target column not found" << endl;
+		return false;
+	}
+
+	/* WHERE column must exist */
+	if (!table->isColumn(parsedQuery.updateCondColumn))
+	{
+		cout << "SEMANTIC ERROR: Condition column not found" << endl;
+		return false;
+	}
+	return true;
+}
+
 void executeUPDATE() { cout << "UPDATE not implemented yet.\n"; }
