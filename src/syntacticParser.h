@@ -62,6 +62,14 @@ enum SelectType
 	NO_SELECT_CLAUSE
 };
 
+enum UpdateOpType
+{
+	SET_LITERAL, // col = <int>
+	ADD_LITERAL, // col = col + <int>
+	SUB_LITERAL, // col = col - <int>
+	NO_UPDATE_OP
+};
+
 enum AggregateFunction
 {
 	MAX_F,
@@ -151,6 +159,25 @@ public:
 	int groupByHavingValue = 0;								 // HAVING comparison value
 	string groupByReturnAttribute = "";						 // Attribute for RETURN
 	AggregateFunction groupByReturnFunc = NO_AGGREGATE_FUNC; // RETURN aggregate function
+
+	/* ---------- INSERT ---------- */
+	string insertRelationName = "";
+	vector<int> insertValues;
+
+	/* ---------- UPDATE ---------- */
+	string updateRelationName = "";
+	string updateTargetColumn = "";
+	UpdateOpType updateOpType = NO_UPDATE_OP;
+	int updateLiteral = 0; // meaning depends on opType
+	string updateCondColumn = "";
+	BinaryOperator updateCondOperator = NO_BINOP_CLAUSE;
+	int updateCondValue = 0;
+
+	/* ---------- DELETE ---------- */
+	string deleteRelationName = "";
+	string deleteCondColumn = "";
+	BinaryOperator deleteCondOperator = NO_BINOP_CLAUSE;
+	int deleteCondValue = 0;
 
 	ParsedQuery();
 	void clear();

@@ -2,11 +2,29 @@ BufferManager::BufferManager
 ParseQuery::clear
 
 Reading New Command: 
-INSERT INTO X VALUES 1
+INSERT INTO foo VALUES 1 2 3
 doCommand
 syntacticParse
+syntacticParseINSERT
+semanticParse
 ParseQuery::clear
 
 Reading New Command: 
+UPDATE bar SET x = 5 WHERE y == 10
+doCommand
+syntacticParse
+syntacticParseUPDATE
+semanticParse
+ParseQuery::clear
 
+Reading New Command: 
+DELETE FROM emp WHERE Salary > 40000
+doCommand
+syntacticParse
+syntacticParseDELETE
+semanticParse
+ParseQuery::clear
+
+Reading New Command: 
+QUIT
 TableCatalogue::~TableCatalogue
