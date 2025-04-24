@@ -31,5 +31,6 @@ bool semanticParseGROUPBY();
 bool semanticParseINSERT();
 bool semanticParseUPDATE();
 bool semanticParseDELETE();
+bool semanticParseSEARCH();
 
 #endif

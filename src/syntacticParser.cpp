@@ -79,6 +79,8 @@ bool syntacticParse()
 			return syntacticParseORDERBY();
 		else if (possibleQueryType == "GROUP")
 			return syntacticParseGROUPBY();
+		else if (possibleQueryType == "SEARCH")
+			return syntacticParseSEARCH();
 		else
 		{
 			cout << "SYNTAX ERROR" << endl;
@@ -174,6 +176,13 @@ void ParsedQuery::clear()
 	deleteCondColumn = "";
 	deleteCondOperator = NO_BINOP_CLAUSE;
 	deleteCondValue = 0;
+	
+	/* SEARCH */
+    searchResultRelationName = "";
+    searchRelationName = "";
+    searchColumnName = "";
+    searchOperator = NO_BINOP_CLAUSE;
+    searchLiteralValue = 0;
 }
 
 /**

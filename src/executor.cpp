@@ -80,6 +80,9 @@ void executeCommand()
 	case DELETE:
 		executeDELETE();
 		break;
+	case SEARCH:
+		executeSEARCH();
+		break;
 	default:
 		cout << "PARSING ERROR" << endl;
 	}

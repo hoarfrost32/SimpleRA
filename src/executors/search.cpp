@@ -1,6 +1,7 @@
 #include "../global.h"
 #include "../table.h"      // Include table definition
 #include "../index.h"      // Include index definition (Assuming this exists as per guide.md)
+#include <regex>
 
 /**
  * @brief Executes the SEARCH command.

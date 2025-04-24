@@ -35,6 +35,7 @@ enum QueryType
 	INSERT,
 	UPDATE,
 	DELETE,
+	SEARCH,
 	UNDETERMINED
 };
 
@@ -179,6 +180,13 @@ public:
 	string deleteCondColumn = "";
 	BinaryOperator deleteCondOperator = NO_BINOP_CLAUSE;
 	int deleteCondValue = 0;
+	
+    /* ---------- SEARCH ---------- */ // <-- ADDED BLOCK
+    string searchResultRelationName = "";
+    string searchRelationName = "";
+    string searchColumnName = "";
+    BinaryOperator searchOperator = NO_BINOP_CLAUSE;
+    int searchLiteralValue = 0;
 
 	ParsedQuery();
 	void clear();
@@ -210,6 +218,7 @@ bool syntacticParseGROUPBY();
 bool syntacticParseINSERT();
 bool syntacticParseUPDATE();
 bool syntacticParseDELETE();
+bool syntacticParseSEARCH();
 
 bool isFileExists(string tableName);
 bool isQueryFile(string fileName);

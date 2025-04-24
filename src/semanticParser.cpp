@@ -56,6 +56,8 @@ bool semanticParse()
 		return semanticParseUPDATE();
 	case DELETE:
 		return semanticParseDELETE();
+	case SEARCH:
+		return semanticParseSEARCH();
 	default:
 		cout << "SEMANTIC ERROR" << endl;
 	}
