@@ -3,11 +3,21 @@
 
 #pragma once
 #include "cursor.h"
+// #include "index.h" // <-- Include BTree header
+#include <string>   // <-- Include for string
+#include <vector>   // <-- Include for vector
+#include <unordered_set> // <-- Include for unordered_set
+#include <fstream>  // <-- Include for ostream/ofstream
+#include <iostream> // <-- Include for ostream
+
+
+// Forward declare BTree to avoid circular dependency if index.h includes table.h
+class BTree;
 
 enum IndexingStrategy
 {
 	BTREE,
-	HASH,
+	HASH, // HASH remains as a potential strategy type, even if not implemented
 	NOTHING
 };
 
@@ -22,7 +32,7 @@ enum IndexingStrategy
  */
 class Table
 {
-	vector<unordered_set<int>> distinctValuesInColumns;
+	std::vector<std::unordered_set<int>> distinctValuesInColumns; // Make namespace explicit
 
 public:
 	string sourceFileName = "";
@@ -34,9 +44,15 @@ public:
 	uint blockCount = 0;
 	uint maxRowsPerBlock = 0;
 	vector<uint> rowsPerBlockCount;
-	bool indexed = false;
-	string indexedColumn = "";
-	IndexingStrategy indexingStrategy = NOTHING;
+
+	// --- Indexing Information ---
+	bool indexed = false;             // Is the table indexed?
+	string indexedColumn = "";        // Which column is indexed?
+	IndexingStrategy indexingStrategy = NOTHING; // What type of index?
+	BTree* index = nullptr;           // Pointer to the actual index object (if indexed)
+    // int indexRootPage = -1;        // Optional: Persist root page index here if needed
+    // int indexNodeCount = 0;        // Optional: Persist node count here if needed
+	// --- End Indexing Information ---
 
 	bool extractColumnNames(string firstLine);
 	bool blockify();
@@ -54,7 +70,7 @@ public:
 	Cursor getCursor();
 	bool reload();
 	int getColumnIndex(string columnName);
-	void unload();
+	void unload(); // unload needs to also handle deleting the index object
 
 	/**
 	 * @brief Static function that takes a vector of valued and prints them out in a
@@ -64,9 +80,9 @@ public:
 	 * @param row
 	 */
 	template <typename T>
-	void writeRow(vector<T> row, ostream &fout)
+	void writeRow(vector<T> row, std::ostream &fout) // Use std::ostream
 	{
-		logger.log("Table::printRow");
+		// logger.log("Table::printRow"); // Logger might not be accessible in header easily
 		for (int columnCounter = 0; columnCounter < row.size(); columnCounter++)
 		{
 			if (columnCounter != 0)
@@ -78,7 +94,7 @@ public:
 
 	/**
 	 * @brief Static function that takes a vector of valued and prints them out in a
-	 * comma seperated format.
+	 * comma seperated format. Appends to the source file.
 	 *
 	 * @tparam T current usaages include int and string
 	 * @param row
@@ -86,8 +102,8 @@ public:
 	template <typename T>
 	void writeRow(vector<T> row)
 	{
-		logger.log("Table::printRow");
-		ofstream fout(this->sourceFileName, ios::app);
+		// logger.log("Table::printRow");
+		std::ofstream fout(this->sourceFileName, ios::app); // Use std::ofstream
 		this->writeRow(row, fout);
 		fout.close();
 	}
