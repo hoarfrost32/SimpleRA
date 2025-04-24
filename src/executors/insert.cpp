@@ -1,6 +1,11 @@
 #include "../global.h"
-#include <regex>
+#include <vector>
 #include <unordered_map>
+#include <string>
+#include "../table.h"
+#include "../page.h"
+#include "../index.h"
+#include "../bufferManager.h"
 
 /**
  * Grammar (comma already stripped by tokenizer):
@@ -121,16 +126,193 @@ void executeINSERT()
 	logger.log("executeINSERT");
 
 	Table *table = tableCatalogue.getTable(parsedQuery.insertRelationName);
+	if (!table)
+	{
+		cout << "FATAL ERROR: Table '" << parsedQuery.insertRelationName << "' not found during execution." << endl;
+		return;
+	}
+	if (table->columnCount == 0)
+	{
+		cout << "FATAL ERROR: Table '" << table->tableName << "' has no columns defined." << endl;
+		return; // Cannot insert into a table without columns
+	}
+	if (table->maxRowsPerBlock == 0)
+	{
+		cout << "FATAL ERROR: Table '" << table->tableName << "' maxRowsPerBlock is zero." << endl;
+		return; // Avoid division by zero or incorrect logic
+	}
 
-	/* Build full row in table‑schema order */
+	// 1. Build the full row vector based on user input and table schema
 	vector<int> newRow;
 	buildRow(table, parsedQuery.insertColumnValueMap, newRow);
 
-	/* Append row to CSV */
-	table->writeRow<int>(newRow);
+	// --- Core Logic: Direct Page Insertion ---
 
-	/* Reblockify for later operators */
-	table->reload();
+	int targetPageIndex = -1;
+	int rowIndexInPage = -1; // 0-based index within the target page
+	bool newPageCreated = false;
 
-	cout << "1 row inserted into \"" << table->tableName << "\"\n";
+	// 2. Determine target page and check if a new page is needed
+	if (table->blockCount == 0)
+	{
+		// Table is currently empty, need to create the first page
+		logger.log("executeINSERT: Table empty, creating first page.");
+		targetPageIndex = 0;
+		newPageCreated = true;
+	}
+	else
+	{
+		// Table has pages, check the row count of the last page using table metadata
+		int lastPageIndex = table->blockCount - 1;
+		// Ensure rowsPerBlockCount has an entry for the last page index
+		if (lastPageIndex >= table->rowsPerBlockCount.size())
+		{
+			cout << "FATAL ERROR: Table metadata mismatch - blockCount inconsistent with rowsPerBlockCount size." << endl;
+			logger.log("executeINSERT: ERROR - Metadata mismatch blockCount=" + to_string(table->blockCount) + " rowsPerBlockCount.size=" + to_string(table->rowsPerBlockCount.size()));
+			return;
+		}
+
+		if (table->rowsPerBlockCount[lastPageIndex] >= table->maxRowsPerBlock)
+		{
+			// Last page is full according to metadata, need a new page
+			logger.log("executeINSERT: Last page full (metadata count " + to_string(table->rowsPerBlockCount[lastPageIndex]) + "), creating new page.");
+			targetPageIndex = table->blockCount; // Index for the new page will be current blockCount
+			newPageCreated = true;
+		}
+		else
+		{
+			// Last page has space according to metadata
+			targetPageIndex = lastPageIndex;
+			logger.log("executeINSERT: Appending to existing page " + to_string(targetPageIndex));
+			newPageCreated = false;
+		}
+	}
+
+	// 3. Perform the Page Write
+	if (newPageCreated)
+	{
+		// Prepare data for a new page with only the new row
+		vector<vector<int>> newPageData;
+		newPageData.push_back(newRow); // Start with just the new row
+
+		bufferManager.writePage(table->tableName, targetPageIndex, newPageData, 1); // Write 1 row
+		rowIndexInPage = 0;															// It's the first row (index 0) in the new page
+
+		// Update table metadata for the new page
+		table->blockCount++;
+		// Ensure rowsPerBlockCount has space if needed, then update/add
+		if (targetPageIndex >= table->rowsPerBlockCount.size())
+		{
+			table->rowsPerBlockCount.push_back(1); // Add row count for the new block
+		}
+		else
+		{
+			// This case shouldn't happen if newPageCreated is true based on prior logic
+			logger.log("executeINSERT: Warning - newPageCreated true but targetPageIndex was within bounds. Overwriting rowsPerBlockCount.");
+			table->rowsPerBlockCount[targetPageIndex] = 1;
+		}
+	}
+	else
+	{
+		// Append to existing page (targetPageIndex is already set)
+		Page page = bufferManager.getPage(table->tableName, targetPageIndex);
+
+		// *** USE GETTER HERE ***
+		int loadedRowCount = page.getRowCount();
+		if (loadedRowCount < 0)
+		{ // Basic check if getRowCount failed or page invalid
+			cout << "FATAL ERROR: Failed to load or get row count for page " << targetPageIndex << "." << endl;
+			logger.log("executeINSERT: Error loading page or getting row count for page " + to_string(targetPageIndex));
+			return;
+		}
+		// Check consistency again (optional, but good practice)
+		if (loadedRowCount >= table->maxRowsPerBlock)
+		{
+			cout << "INTERNAL ERROR: Metadata indicated space, but loaded page reports full." << endl;
+			logger.log("executeINSERT: ERROR - Metadata/Page inconsistency for page " + to_string(targetPageIndex));
+			// Maybe try creating a new page instead? For now, error out.
+			return;
+		}
+
+		// Need to read all existing rows, append the new one, and write back
+		vector<vector<int>> currentPageData;
+		currentPageData.reserve(loadedRowCount + 1); // Reserve space
+
+		// *** USE GETTER IN LOOP CONDITION (via loadedRowCount) ***
+		for (int i = 0; i < loadedRowCount; ++i)
+		{
+			vector<int> currentRow = page.getRow(i);
+			if (currentRow.empty() && i < loadedRowCount)
+			{ // Handle potential issue where getRow returns empty unexpectedly
+				cout << "FATAL ERROR: Failed to read row " << i << " from page " << targetPageIndex << "." << endl;
+				logger.log("executeINSERT: Error reading row " + to_string(i) + " from page " + to_string(targetPageIndex));
+				return; // Abort if page data seems corrupt
+			}
+			if (!currentRow.empty())
+			{ // Append only if getRow returned something valid
+				currentPageData.push_back(currentRow);
+			}
+		}
+
+		// *** USE GETTER TO DETERMINE INDEX ***
+		rowIndexInPage = loadedRowCount; // The index where the new row goes (0-based)
+		currentPageData.push_back(newRow);
+
+		bufferManager.writePage(table->tableName, targetPageIndex, currentPageData, currentPageData.size());
+
+		// Update table metadata for the modified page
+		// Ensure the index exists before accessing
+		if (targetPageIndex >= table->rowsPerBlockCount.size())
+		{
+			cout << "FATAL ERROR: Metadata inconsistency - trying to update rowsPerBlockCount for out-of-bounds index " << targetPageIndex << endl;
+			logger.log("executeINSERT: Error updating metadata for existing page - index out of bounds.");
+			return;
+		}
+		table->rowsPerBlockCount[targetPageIndex] = currentPageData.size();
+	}
+
+	// 4. Update total row count for the table
+	table->rowCount++;
+
+	// 5. Index Maintenance
+	if (table->indexed && table->index != nullptr)
+	{
+		logger.log("executeINSERT: Updating index for column '" + table->indexedColumn + "'");
+		int indexedColIdx = table->getColumnIndex(table->indexedColumn);
+		if (indexedColIdx < 0)
+		{
+			cout << "INTERNAL ERROR: Indexed column '" << table->indexedColumn << "' not found during INSERT execution." << endl;
+			logger.log("executeINSERT: ERROR - Indexed column not found.");
+		}
+		else
+		{
+			// Ensure the row has enough columns before accessing
+			if (indexedColIdx >= newRow.size())
+			{
+				cout << "INTERNAL ERROR: Row size mismatch when accessing indexed column." << endl;
+				logger.log("executeINSERT: ERROR - Row size (" + to_string(newRow.size()) + ") too small for indexed column index (" + to_string(indexedColIdx) + ")");
+			}
+			else
+			{
+				int key = newRow[indexedColIdx];
+				RecordPointer recordPointer = {targetPageIndex, rowIndexInPage};
+				logger.log("executeINSERT: Calling index->insertKey(" + to_string(key) + ", {" + to_string(recordPointer.first) + "," + to_string(recordPointer.second) + "})");
+
+				// Call the B+ Tree insert function
+				if (!table->index->insertKey(key, recordPointer))
+				{
+					// Optional: Handle insertion failure if BTree::insertKey returns bool
+					logger.log("executeINSERT: WARNING - BTree insertKey returned false.");
+					// Consider if you need error recovery here. Maybe reverse the data insertion? Complex.
+				}
+			}
+		}
+	}
+	else
+	{
+		// logger.log("executeINSERT: No index update needed (table not indexed or index object missing).");
+	}
+
+	// 6. Print Success Message
+	cout << "1 row inserted into \"" << table->tableName << "\". Row Count = " << table->rowCount << endl;
 }

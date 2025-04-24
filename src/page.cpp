@@ -136,3 +136,8 @@ void Page::writePage()
 	}
 	fout.close();
 }
+
+int Page::getRowCount() const
+{
+	return this->rowCount;
+}
