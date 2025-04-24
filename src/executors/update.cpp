@@ -1,12 +1,11 @@
 #include "../global.h"
 #include <vector>
 #include <string>
+#include <algorithm> // Needed for std::remove_if
 #include "../table.h"
 #include "../page.h"
 #include "../index.h"
 #include "../bufferManager.h"
-#include <regex>
-
 /**
  * Supported limited grammar:
  *   UPDATE <table> SET <col> = <int> WHERE <col2> <binop> <int>
@@ -188,49 +187,113 @@ void executeUPDATE()
 
 	// --- 1. Find Rows to Update (using Full Table Scan for Phase 1) ---
 	logger.log("executeUPDATE: Scanning table to find matching rows...");
-	Cursor cursor = table->getCursor();
-	vector<int> row = cursor.getNext();
 
-	while (!row.empty())
+	bool indexUsed = false;
+	// Conditions to use index: table indexed, index object exists, WHERE column is the indexed column, operator is EQUAL
+	if (table->indexed && table->index != nullptr &&
+		parsedQuery.updateCondColumn == table->indexedColumn &&
+		parsedQuery.updateCondOperator == EQUAL)
 	{
-		// Calculate pointer for the current row (handle page wrap)
-		int currentPageIndex = cursor.pageIndex;
-		int currentRowInPage = cursor.pagePointer - 1; // Index of the row just returned
+		// ** Use Index Lookup **
+		logger.log("executeUPDATE: Using index on column '" + table->indexedColumn + "' to find rows where key == " + to_string(parsedQuery.updateCondValue));
+		pointersToUpdate = table->index->searchKey(parsedQuery.updateCondValue);
+		indexUsed = true;
+		logger.log("executeUPDATE: Index search returned " + to_string(pointersToUpdate.size()) + " potential rows.");
 
-		// Validate pointer calculation - Reuse refined logic if necessary
-		if (currentRowInPage < 0)
+		// ** Integrated Pointer Validation Step **
+		size_t originalPointerCount = pointersToUpdate.size();
+		pointersToUpdate.erase(
+			std::remove_if(pointersToUpdate.begin(), pointersToUpdate.end(),
+						   [&](const RecordPointer &p)
+						   {
+							   // Check basic bounds: page index valid? row index non-negative?
+							   if (p.first < 0 || p.first >= table->blockCount || p.second < 0)
+							   {
+								   logger.log("executeUPDATE: Validation - Removing invalid pointer {page=" + to_string(p.first) + ", row=" + to_string(p.second) + "} (Basic bounds check failed).");
+								   return true; // Remove this pointer
+							   }
+							   // Check if row index is within the bounds for that *specific* page using table metadata
+							   if (p.first >= table->rowsPerBlockCount.size())
+							   {
+								   logger.log("executeUPDATE: Validation - Removing invalid pointer {page=" + to_string(p.first) + ", row=" + to_string(p.second) + "} (Page index out of bounds for rowsPerBlockCount lookup).");
+								   return true; // Remove this pointer
+							   }
+							   if (p.second >= table->rowsPerBlockCount[p.first])
+							   {
+								   logger.log("executeUPDATE: Validation - Removing invalid pointer {page=" + to_string(p.first) + ", row=" + to_string(p.second) + "} (Row index >= rows in page " + to_string(table->rowsPerBlockCount[p.first]) + ").");
+								   return true; // Remove this pointer
+							   }
+							   return false; // Keep this pointer
+						   }),
+			pointersToUpdate.end());
+
+		if (pointersToUpdate.size() < originalPointerCount)
 		{
-			if (currentPageIndex == 0 && cursor.pagePointer == 1)
-				currentRowInPage = 0; // First row case
-			else
-			{
-				logger.log("executeUPDATE: Warning - Invalid pointer calculation during scan.");
-				// Attempt to continue or skip? Skipping seems safer.
-				row = cursor.getNext();
-				continue;
-			}
+			logger.log("executeUPDATE: Validation - Removed " + to_string(originalPointerCount - pointersToUpdate.size()) + " invalid pointers. Valid pointers count: " + to_string(pointersToUpdate.size()));
+		}
+		else
+		{
+			// logger.log("executeUPDATE: Validation - All pointers returned by index seem valid based on metadata."); // Can be verbose
+		}
+		// ** End of Integrated Pointer Validation Step **
+	}
+	else
+	{
+		// ** Fallback to Full Table Scan **
+		if (table->indexed && table->index != nullptr)
+		{ // Check index object exists
+			logger.log("executeUPDATE: Index exists but cannot be used for this query (Column='" + parsedQuery.updateCondColumn + "', Operator=" + to_string(parsedQuery.updateCondOperator) + "). Performing table scan.");
+		}
+		else
+		{
+			logger.log("executeUPDATE: Table not indexed or index object missing. Performing table scan.");
 		}
 
-		// Check the WHERE condition
-		if (evaluateBinOp(row[condColIndex], parsedQuery.updateCondValue, parsedQuery.updateCondOperator))
+		int condColIndex = table->getColumnIndex(parsedQuery.updateCondColumn); // Moved calculation here, only needed for scan
+
+		Cursor cursor = table->getCursor();
+		vector<int> row = cursor.getNext();
+
+		while (!row.empty())
 		{
-			if (currentPageIndex >= 0)
-			{ // Ensure page index is valid
+			// Calculate pointer for the current row
+			int currentPageIndex = cursor.pageIndex;
+			int currentRowInPage = cursor.pagePointer - 1; // Index of the row just returned
+
+			// Basic validation for pointer calculation during scan
+			if (currentRowInPage < 0 || currentPageIndex < 0 || currentPageIndex >= table->blockCount)
+			{
+				// Check specific case of first row: pageIndex=0, pagePointer=1 -> currentRowInPage=0. This is valid.
+				if (!(currentPageIndex == 0 && cursor.pagePointer == 1 && currentRowInPage == 0))
+				{
+					logger.log("executeUPDATE: Warning - Invalid pointer calculation during scan (Page=" + to_string(currentPageIndex) + ", RowPtr=" + to_string(cursor.pagePointer) + ", RowIdx=" + to_string(currentRowInPage) + "). Skipping row check.");
+					row = cursor.getNext();
+					continue; // Skip processing this potentially invalid state
+				}
+				// Handle the first row case correctly
+				currentRowInPage = 0;
+			}
+
+			// Check the WHERE condition
+			if (condColIndex < 0)
+			{ // Check condition column index validity once
+				logger.log("executeUPDATE: Error - Condition column index invalid during scan setup.");
+				break; // Stop scan
+			}
+			if (condColIndex >= row.size())
+			{
+				logger.log("executeUPDATE: Error - Row size mismatch during scan. Row size=" + to_string(row.size()) + ", Cond Idx=" + to_string(condColIndex));
+				break; // Stop scan if schema mismatch detected
+			}
+
+			if (evaluateBinOp(row[condColIndex], parsedQuery.updateCondValue, parsedQuery.updateCondOperator))
+			{
 				pointersToUpdate.push_back({currentPageIndex, currentRowInPage});
 			}
-			else
-			{
-				logger.log("executeUPDATE: Warning - Skipping update for row with invalid page index.");
-			}
+			row = cursor.getNext();
 		}
-		row = cursor.getNext();
-	}
-	logger.log("executeUPDATE: Scan complete. Found " + to_string(pointersToUpdate.size()) + " rows matching criteria.");
-
-	if (pointersToUpdate.empty())
-	{
-		cout << "0 rows matched the condition. No rows updated in \"" << table->tableName << "\"." << endl;
-		return;
+		logger.log("executeUPDATE: Scan complete. Found " + to_string(pointersToUpdate.size()) + " rows matching criteria.");
+		indexUsed = false; // Explicitly set for clarity
 	}
 
 	// --- 2. Process Updates (Pointer by Pointer) ---

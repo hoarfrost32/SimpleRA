@@ -1,8 +1,9 @@
 #include "../global.h"
 #include <vector>
-#include <map>		 // For grouping deletions by page
-#include <algorithm> // For sorting row indices within a page
-#include <set>		 // For quick lookup of row indices to delete
+#include <map>
+#include <algorithm> // Needed for std::remove_if
+#include <set>
+#include <string>
 #include "../table.h"
 #include "../page.h"
 #include "../index.h"
@@ -123,79 +124,119 @@ void executeDELETE()
 
 	long long initialRowCount = table->rowCount; // Store for final count calculation
 	long long rowsDeletedCounter = 0;
-	vector<RecordPointer> pointersToDelete; // Store {pageIdx, rowIdxInPage}
 
 	// --- 1. Find Rows to Delete (using Full Table Scan for Phase 1) ---
-	logger.log("executeDELETE: Scanning table to find matching rows...");
-	Cursor cursor = table->getCursor();
-	vector<int> row = cursor.getNext();
+	vector<RecordPointer> pointersToDelete; // Store {pageIdx, rowIdxInPage}
 
-	while (!row.empty())
+	bool indexUsed = false;
+	// Conditions to use index: table indexed, index object exists, WHERE column is the indexed column, operator is EQUAL
+	if (table->indexed && table->index != nullptr &&
+		parsedQuery.deleteCondColumn == table->indexedColumn &&
+		parsedQuery.deleteCondOperator == EQUAL)
 	{
-		// Get pointer info *before* checking condition
-		int currentPageIndex = cursor.pageIndex;
-		int currentRowInPage = cursor.pagePointer - 1; // pagePointer is 1-based index of *next* row
+		// ** Use Index Lookup **
+		logger.log("executeDELETE: Using index on column '" + table->indexedColumn + "' to find rows where key == " + to_string(parsedQuery.deleteCondValue));
+		pointersToDelete = table->index->searchKey(parsedQuery.deleteCondValue);
+		indexUsed = true;
+		logger.log("executeDELETE: Index search returned " + to_string(pointersToDelete.size()) + " potential rows.");
 
-		// Handle cursor wrapping to the next page
-		if (cursor.pagePointer == 1 && currentPageIndex > 0)
+		// ** Integrated Pointer Validation Step **
+		size_t originalPointerCount = pointersToDelete.size();
+		pointersToDelete.erase(
+			std::remove_if(pointersToDelete.begin(), pointersToDelete.end(),
+						   [&](const RecordPointer &p)
+						   {
+							   // Check basic bounds: page index valid? row index non-negative?
+							   if (p.first < 0 || p.first >= table->blockCount || p.second < 0)
+							   {
+								   logger.log("executeDELETE: Validation - Removing invalid pointer {page=" + to_string(p.first) + ", row=" + to_string(p.second) + "} (Basic bounds check failed).");
+								   return true; // Remove this pointer
+							   }
+							   // Check if row index is within the bounds for that *specific* page using table metadata
+							   // Need to ensure page index itself is valid for rowsPerBlockCount lookup first
+							   if (p.first >= table->rowsPerBlockCount.size())
+							   {
+								   logger.log("executeDELETE: Validation - Removing invalid pointer {page=" + to_string(p.first) + ", row=" + to_string(p.second) + "} (Page index out of bounds for rowsPerBlockCount lookup).");
+								   return true; // Remove this pointer
+							   }
+							   if (p.second >= table->rowsPerBlockCount[p.first])
+							   {
+								   logger.log("executeDELETE: Validation - Removing invalid pointer {page=" + to_string(p.first) + ", row=" + to_string(p.second) + "} (Row index >= rows in page " + to_string(table->rowsPerBlockCount[p.first]) + ").");
+								   return true; // Remove this pointer
+							   }
+							   return false; // Keep this pointer
+						   }),
+			pointersToDelete.end());
+
+		if (pointersToDelete.size() < originalPointerCount)
 		{
-			// This means getNext() just loaded page 'currentPageIndex',
-			// so the row we just got is row 0 of this new page.
-			// BUT the pointer should refer to the *previous* state.
-			// Let's recalculate based on previous page.
-			int previousPageIndex = currentPageIndex - 1;
-			if (previousPageIndex >= 0 && previousPageIndex < table->rowsPerBlockCount.size())
-			{
-				int rowsInPrevPage = table->rowsPerBlockCount[previousPageIndex];
-				currentPageIndex = previousPageIndex;  // Correct page index
-				currentRowInPage = rowsInPrevPage - 1; // Last row (0-based) of previous page
-			}
-			else
-			{
-				// Should not happen with normal iteration, indicates metadata issue
-				logger.log("executeDELETE: Warning - Metadata inconsistency during cursor wrap handling.");
-				currentRowInPage = -1; // Mark as invalid
-			}
+			logger.log("executeDELETE: Validation - Removed " + to_string(originalPointerCount - pointersToDelete.size()) + " invalid pointers. Valid pointers count: " + to_string(pointersToDelete.size()));
 		}
-		else if (currentRowInPage < 0)
+		else
 		{
-			// Should only happen if called on very first row of first page, make it 0
-			currentRowInPage = 0;
-			// Let's refine the logic above - pagePointer is the index of the row *just returned* if 0-based logic was intended?
-			// Re-reading cursor.h/cpp - getNext() returns row[pagePointer], then increments pagePointer.
-			// So, the index of the row *just returned* is pagePointer - 1. This seems correct.
-			// The wrap-around logic above might be overly complex if pagePointer is handled correctly internally.
-			// Let's trust `cursor.pageIndex` and `cursor.pagePointer - 1` for now.
-			currentRowInPage = cursor.pagePointer - 1;
-			if (currentRowInPage < 0)
-			{
-				logger.log("executeDELETE: Warning - Calculated negative row index.");
-				// If it's the first row after loading page 0, pagePointer is 1, index is 0. Seems okay.
-			}
+			// logger.log("executeDELETE: Validation - All pointers returned by index seem valid based on metadata."); // Can be verbose
+		}
+		// ** End of Integrated Pointer Validation Step **
+	}
+	else
+	{
+		// ** Fallback to Full Table Scan **
+		if (table->indexed && table->index != nullptr)
+		{ // Check index != nullptr here too
+			logger.log("executeDELETE: Index exists but cannot be used for this query (Column='" + parsedQuery.deleteCondColumn + "', Operator=" + to_string(parsedQuery.deleteCondOperator) + "). Performing table scan.");
+		}
+		else
+		{
+			logger.log("executeDELETE: Table not indexed or index object missing. Performing table scan.");
 		}
 
-		// Now check the condition
-		if (!row.empty() && evaluateBinOp(row[condColIndex], parsedQuery.deleteCondValue, parsedQuery.deleteCondOperator))
+		int condColIndex = table->getColumnIndex(parsedQuery.deleteCondColumn); // Moved calculation here, only needed for scan
+
+		Cursor cursor = table->getCursor();
+		vector<int> row = cursor.getNext();
+
+		while (!row.empty())
 		{
-			if (currentPageIndex >= 0 && currentRowInPage >= 0)
+			// Calculate pointer for the current row
+			int currentPageIndex = cursor.pageIndex;
+			int currentRowInPage = cursor.pagePointer - 1; // Index of the row just returned
+
+			// Basic validation for pointer calculation during scan
+			if (currentRowInPage < 0 || currentPageIndex < 0 || currentPageIndex >= table->blockCount)
+			{
+				// Check specific case of first row: pageIndex=0, pagePointer=1 -> currentRowInPage=0. This is valid.
+				if (!(currentPageIndex == 0 && cursor.pagePointer == 1 && currentRowInPage == 0))
+				{
+					logger.log("executeDELETE: Warning - Invalid pointer calculation during scan (Page=" + to_string(currentPageIndex) + ", RowPtr=" + to_string(cursor.pagePointer) + ", RowIdx=" + to_string(currentRowInPage) + "). Skipping row check.");
+					row = cursor.getNext();
+					continue; // Skip processing this potentially invalid state
+				}
+				// Handle the first row case correctly
+				currentRowInPage = 0;
+			}
+
+			// Check the WHERE condition
+			if (condColIndex < 0)
+			{ // Check condition column index validity once
+				logger.log("executeDELETE: Error - Condition column index invalid during scan setup.");
+				break; // Stop scan
+			}
+			if (condColIndex >= row.size())
+			{
+				logger.log("executeDELETE: Error - Row size mismatch during scan. Row size=" + to_string(row.size()) + ", Cond Idx=" + to_string(condColIndex));
+				// Should not happen if CSV is consistent, but safety first
+				break; // Stop scan if schema mismatch detected
+			}
+
+			if (evaluateBinOp(row[condColIndex], parsedQuery.deleteCondValue, parsedQuery.deleteCondOperator))
 			{
 				pointersToDelete.push_back({currentPageIndex, currentRowInPage});
 			}
-			else
-			{
-				logger.log("executeDELETE: Warning - Skipping deletion for row with invalid pointer calculation.");
-			}
+			row = cursor.getNext();
 		}
-		row = cursor.getNext();
+		logger.log("executeDELETE: Scan complete. Found " + to_string(pointersToDelete.size()) + " rows matching criteria.");
+		indexUsed = false; // Explicitly set for clarity
 	}
-	logger.log("executeDELETE: Scan complete. Found " + to_string(pointersToDelete.size()) + " rows matching criteria.");
-
-	if (pointersToDelete.empty())
-	{
-		cout << "0 rows matched the condition. No rows deleted from \"" << table->tableName << "\"." << endl;
-		return;
-	}
-
 	// --- 2. Group Deletions by Page ---
 	map<int, vector<int>> rowsToDeleteByPage;
 	for (const auto &pointer : pointersToDelete)
