@@ -47,14 +47,15 @@ public:
     BTreeNode(int order, int leafOrder, bool leaf = false);
     // Constructor for loading an existing node from a page object
     // TAKES Page* now
-    BTreeNode(Page* page, int order, int leafOrder);
+    // BTreeNode(Page* page, int order, int leafOrder);
 
     // --- Serialization / Deserialization ---
     // Fills a rows vector suitable for BufferManager::writePage
     void serialize(std::vector<std::vector<int>>& pageData, int order, int leafOrder);
     // Parses data from a Page object read by BufferManager::getPage
     // TAKES Page* now
-    void deserialize(Page* page, int order, int leafOrder);
+    // void deserialize(Page* page, int order, int leafOrder);
+    void deserialize(const std::vector<std::vector<int>>& pageData, int order, int leafOrder);
 
     // --- Node Operations ---
     bool isFull(int order, int leafOrder) const;

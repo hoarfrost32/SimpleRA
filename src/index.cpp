@@ -30,167 +30,141 @@ BTreeNode::BTreeNode(int order, int leafOrder, bool leaf) :
 
 // Constructor for loading an existing node from a page object
 // TAKES Page* now
-BTreeNode::BTreeNode(Page* page, int order, int leafOrder)
-{
-    // Deserialize directly from the Page object using getRow()
-    deserialize(page, order, leafOrder);
+// BTreeNode::BTreeNode(Page* page, int order, int leafOrder)
+// {
+//     // Deserialize directly from the Page object using getRow()
+//     deserialize(page, order, leafOrder);
 
-    // Set the page index from the Page object's name (requires parsing page.pageName)
-    if (page) { // Check if page is valid
-        size_t lastUnderscore = page->pageName.rfind('_');
-        size_t lastNode = page->pageName.rfind("Node"); // Find "Node" prefix
-        if (lastNode != std::string::npos && (lastUnderscore == std::string::npos || lastNode > lastUnderscore)) { // Ensure "Node" is the suffix part
-            try {
-                // Extract substring after "Node" and convert to int
-                pageIndex = std::stoi(page->pageName.substr(lastNode + 4));
-            } catch (const std::exception& e) {
-                logger.log("BTreeNode(Page*) - Error parsing pageIndex from pageName: " + page->pageName + " - " + e.what());
-                pageIndex = -1; // Indicate error
-            }
-        } else {
-            logger.log("BTreeNode(Page*) - Error: Could not find 'Node<ID>' suffix in pageName: " + page->pageName);
-            pageIndex = -1;
-        }
-    } else {
-        pageIndex = -1; // Invalid page pointer
-    }
-}
+//     // Set the page index from the Page object's name (requires parsing page.pageName)
+//     if (page) { // Check if page is valid
+//         size_t lastUnderscore = page->pageName.rfind('_');
+//         size_t lastNode = page->pageName.rfind("Node"); // Find "Node" prefix
+//         if (lastNode != std::string::npos && (lastUnderscore == std::string::npos || lastNode > lastUnderscore)) { // Ensure "Node" is the suffix part
+//             try {
+//                 // Extract substring after "Node" and convert to int
+//                 pageIndex = std::stoi(page->pageName.substr(lastNode + 4));
+//             } catch (const std::exception& e) {
+//                 logger.log("BTreeNode(Page*) - Error parsing pageIndex from pageName: " + page->pageName + " - " + e.what());
+//                 pageIndex = -1; // Indicate error
+//             }
+//         } else {
+//             logger.log("BTreeNode(Page*) - Error: Could not find 'Node<ID>' suffix in pageName: " + page->pageName);
+//             pageIndex = -1;
+//         }
+//     } else {
+//         pageIndex = -1; // Invalid page pointer
+//     }
+// }
 
 // --- Node Serialization / Deserialization ---
 // Fills a rows vector suitable for BufferManager::writePage
 void BTreeNode::serialize(std::vector<std::vector<int>>& pageData, int order, int leafOrder) {
     pageData.clear();
-    // Use first row for metadata
-    int metaSize = isLeaf ? METADATA_INTS_LEAF : METADATA_INTS_INTERNAL;
-    std::vector<int> metadataRow(metaSize, 0); // Initialize with zeros
-    metadataRow[IS_LEAF_OFFSET] = isLeaf ? 1 : 0;
-    metadataRow[KEY_COUNT_OFFSET] = keyCount;
-    metadataRow[PARENT_PAGE_INDEX_OFFSET] = parentPageIndex;
-    if (isLeaf) {
-        metadataRow[NEXT_LEAF_PAGE_INDEX_OFFSET] = nextLeafPageIndex;
-    }
-    pageData.push_back(metadataRow);
 
-    // Store keys (Simple: one key per "row" entry for now)
-    for (int key : keys) {
-        pageData.push_back({key});
-    }
+    // Ensure keyCount reflects actual vector size before serializing metadata
+    // This is defensive coding; keyCount should ideally be correct already if managed properly.
+    keyCount = keys.size();
 
+    // Row 0: Metadata
+    std::vector<int> metadata;
+    metadata.push_back(isLeaf ? 1 : 0);
+    metadata.push_back(keyCount); // Use the actual key count
+    metadata.push_back(parentPageIndex);
     if (isLeaf) {
-        // Store record pointers (pageIndex, rowIndex)
+        metadata.push_back(nextLeafPageIndex);
+    }
+    // Pad metadata to ensure consistent size if needed
+    while (metadata.size() < BTreeNode::METADATA_INTS_LEAF) {
+        metadata.push_back(-1); // Pad with -1
+    }
+    pageData.push_back(metadata);
+
+    // Row 1: Keys
+    pageData.push_back(keys); // Push the actual keys vector
+
+    // Row 2: Pointers (Record or Child)
+    if (isLeaf) {
+        // Ensure consistency before writing pointers
+        if (recordPointers.size() != keyCount) {
+             logger.log("BTreeNode::serialize - ERROR: Leaf node key count (" + std::to_string(keyCount) + ") doesn't match record pointer count (" + std::to_string(recordPointers.size()) + ") before writing node " + std::to_string(pageIndex));
+             // This indicates a bug elsewhere, but we proceed by writing the pointers we have.
+        }
+        std::vector<int> flatPointers;
+        flatPointers.reserve(recordPointers.size() * 2);
         for (const auto& rp : recordPointers) {
-            pageData.push_back({rp.first, rp.second});
+            flatPointers.push_back(rp.first);
+            flatPointers.push_back(rp.second);
         }
+        pageData.push_back(flatPointers);
     } else {
-        // Store children page indices
-        for (int childIdx : childrenPageIndices) {
-            pageData.push_back({childIdx});
-        }
+         // Ensure consistency for internal nodes
+         if (childrenPageIndices.size() != (keyCount + 1) && !(keyCount == 0 && childrenPageIndices.empty())) {
+              logger.log("BTreeNode::serialize - ERROR: Internal node key count (" + std::to_string(keyCount) + ") doesn't match children count (" + std::to_string(childrenPageIndices.size()) + ") before writing node " + std::to_string(pageIndex));
+         }
+        pageData.push_back(childrenPageIndices);
     }
-    // NOTE: BufferManager::writePage handles writing only the provided rowCount.
 }
 
-// Parses data from a Page object read by BufferManager::getPage
-// TAKES Page* now
-void BTreeNode::deserialize(Page* page, int order, int leafOrder) {
-    if (!page) {
-        logger.log("BTreeNode::deserialize - Error: Null page pointer provided.");
-        isLeaf = false; keyCount = 0; parentPageIndex = -1; nextLeafPageIndex = -1;
-        keys.clear(); recordPointers.clear(); childrenPageIndices.clear();
-        return;
-    }
+// Deserialize - TAKES const vector<vector<int>>& pageData now
+void BTreeNode::deserialize(const std::vector<std::vector<int>>& pageData, int order, int leafOrder) {
+    if (pageData.empty()) return; // Handle empty page data
 
-    // Read metadata from the first row of the Page object
-    std::vector<int> metadataRow = page->getRow(0);
-    if (metadataRow.empty()) {
-         logger.log("BTreeNode::deserialize - Error: Metadata row is empty. PageName: " + page->pageName);
-         isLeaf = false; keyCount = 0; parentPageIndex = -1; nextLeafPageIndex = -1;
-         keys.clear(); recordPointers.clear(); childrenPageIndices.clear();
-         return;
-    }
-
-    // Determine expected size based on isLeaf flag *read from the data*
-    bool potentialLeaf = (metadataRow[IS_LEAF_OFFSET] == 1);
-    int expectedMetaSize = potentialLeaf ? METADATA_INTS_LEAF : METADATA_INTS_INTERNAL;
-
-    if (metadataRow.size() < expectedMetaSize ) {
-        logger.log("BTreeNode::deserialize - Error: Invalid page data format (metadata size mismatch). Expected >= " + std::to_string(expectedMetaSize) + ", got " + std::to_string(metadataRow.size()) + ". PageName: " + page->pageName);
-        isLeaf = false; keyCount = 0; parentPageIndex = -1; nextLeafPageIndex = -1;
-        keys.clear(); recordPointers.clear(); childrenPageIndices.clear();
-        return;
-    }
-
-    isLeaf = potentialLeaf; // Now confirmed
-    keyCount = metadataRow[KEY_COUNT_OFFSET];
-    parentPageIndex = metadataRow[PARENT_PAGE_INDEX_OFFSET];
-    if (isLeaf) {
-        nextLeafPageIndex = metadataRow[NEXT_LEAF_PAGE_INDEX_OFFSET];
-    } else {
-        nextLeafPageIndex = -1; // Not used for internal nodes
-    }
-
-    // Clear existing data
+    // Clear existing node state before loading
     keys.clear();
     recordPointers.clear();
     childrenPageIndices.clear();
+    // keyCount = 0; // Reset later based on actual data
 
-    // Read keys (one key per row starting from row 1)
-    int currentRowIndex = 1;
-    keys.reserve(keyCount);
-    for (int i = 0; i < keyCount; ++i) {
-        std::vector<int> keyRow = page->getRow(currentRowIndex);
-        if (keyRow.empty()) {
-             logger.log("BTreeNode::deserialize - Error: Invalid page data format (keys). Expected key at row " + std::to_string(currentRowIndex) + " PageName: " + page->pageName);
-             keyCount = i; // Adjust count
-             break;
+    // Row 0: Metadata
+    const std::vector<int>& metadata = pageData[0];
+    if (metadata.size() >= 3) { // Basic check
+        isLeaf = (metadata[IS_LEAF_OFFSET] == 1);
+        // keyCount = metadata[KEY_COUNT_OFFSET]; // DON'T read keyCount from metadata here
+        parentPageIndex = metadata[PARENT_PAGE_INDEX_OFFSET];
+        if (isLeaf && metadata.size() >= 4) {
+            nextLeafPageIndex = metadata[NEXT_LEAF_PAGE_INDEX_OFFSET];
+        } else {
+            nextLeafPageIndex = -1;
         }
-        keys.push_back(keyRow[0]);
-        currentRowIndex++;
-    }
-
-    if (isLeaf) {
-        // Read record pointers (pageIndex, rowIndex)
-        recordPointers.reserve(keyCount); // One pointer per key in a leaf
-        for (int i = 0; i < keyCount; ++i) {
-            std::vector<int> pointerRow = page->getRow(currentRowIndex);
-             if (pointerRow.empty() || pointerRow.size() < 2) {
-                 logger.log("BTreeNode::deserialize - Error: Invalid page data format (record pointers). Expected {pg,row} at row " + std::to_string(currentRowIndex) + " PageName: " + page->pageName);
-                 keyCount = i; // Adjust count
-                 keys.resize(i); // Match keys vector size
-                 break;
-             }
-            recordPointers.push_back({pointerRow[0], pointerRow[1]});
-            currentRowIndex++;
-        }
-         // Ensure consistency if loop broke early
-         if (keys.size() != recordPointers.size()) {
-            logger.log("BTreeNode::deserialize - Warning: Key/Pointer count mismatch after reading leaf. PageName: " + page->pageName);
-            keyCount = std::min((int)keys.size(), (int)recordPointers.size()); // Use int cast for comparison
-            keys.resize(keyCount);
-            recordPointers.resize(keyCount);
-         }
-
     } else {
-        // Read children page indices (keyCount + 1 pointers)
-        childrenPageIndices.reserve(keyCount + 1);
-        for (int i = 0; i <= keyCount; ++i) { // Note: <= keyCount
-             std::vector<int> childRow = page->getRow(currentRowIndex);
-             if (childRow.empty()) {
-                 logger.log("BTreeNode::deserialize - Error: Invalid page data format (child pointers). Expected pointer at row " + std::to_string(currentRowIndex) + " PageName: " + page->pageName);
-                 childrenPageIndices.clear(); keyCount = 0; keys.clear(); // Invalidate node state
-                 break;
-             }
-            childrenPageIndices.push_back(childRow[0]);
-            currentRowIndex++;
-        }
-        // Ensure consistency if loop broke early
-        if (!childrenPageIndices.empty() && childrenPageIndices.size() != keyCount + 1) {
-             logger.log("BTreeNode::deserialize - Warning: Key/Children count mismatch after reading internal node. PageName: " + page->pageName);
-             keyCount = childrenPageIndices.size() - 1;
-             if (keyCount < 0) keyCount = 0; // Ensure non-negative
-             keys.resize(keyCount);
+         logger.log("BTreeNode::deserialize - Error: Metadata row too short.");
+         isLeaf = false; // Default to prevent errors later? Or handle better?
+         parentPageIndex = -1;
+         nextLeafPageIndex = -1;
+         keyCount = 0; // Set explicitly on error
+         return;
+    }
+
+
+    // Row 1: Keys
+    if (pageData.size() > 1) {
+        keys = pageData[1]; // Assign keys directly
+    }
+
+
+    // Row 2: Pointers
+    if (pageData.size() > 2) {
+        if (isLeaf) {
+            const std::vector<int>& flatPointers = pageData[2];
+            recordPointers.reserve(flatPointers.size() / 2);
+            for (size_t i = 0; i + 1 < flatPointers.size(); i += 2) {
+                recordPointers.push_back({flatPointers[i], flatPointers[i + 1]});
+            }
+        } else {
+            childrenPageIndices = pageData[2]; // Assign child indices directly
         }
     }
+
+    // Set keyCount based on the ACTUAL number of keys read from the file
+    keyCount = keys.size();
+
+    // Optional Sanity checks (can be added if needed, but might hide prior errors)
+    // if (isLeaf && recordPointers.size() != keyCount) {
+    //      logger.log("BTreeNode::deserialize - Warning: Leaf node key count mismatch after load.");
+    // }
+    // if (!isLeaf && childrenPageIndices.size() != (keyCount + 1) && !(keyCount == 0 && childrenPageIndices.empty())) {
+    //      logger.log("BTreeNode::deserialize - Warning: Internal node pointer count mismatch after load.");
+    // }
 }
 
 bool BTreeNode::isFull(int order, int leafOrder) const {
@@ -339,22 +313,91 @@ int BTree::allocateNewNodePage() {
 
 BTreeNode* BTree::fetchNode(int pageIndex) {
     if (pageIndex < 0) return nullptr;
-    Page page = bufferManager.getPage(indexName, pageIndex);
-    BTreeNode* node = new BTreeNode(&page, order, leafOrder);
-    if (node->pageIndex < 0) { // Check if deserialization or page name parsing failed
-         logger.log("BTree::fetchNode - Failed to properly deserialize node from page: " + page.pageName + " (Index: " + std::to_string(pageIndex) + ")");
-         delete node;
-         return nullptr;
+    std::string nodeFileName = "../data/temp/" + indexName + "_Node" + std::to_string(pageIndex);
+
+    // Instead of BufferManager, read directly using ifstream
+    std::ifstream fin(nodeFileName);
+    if (!fin.is_open()) {
+        logger.log("BTree::fetchNode - Error: Could not open index node file: " + nodeFileName);
+        return nullptr;
     }
+
+    std::vector<std::vector<int>> pageData;
+    std::string line;
+    while (getline(fin, line)) {
+        std::vector<int> rowData;
+        std::stringstream ss(line);
+        int value;
+        while (ss >> value) {
+            rowData.push_back(value);
+        }
+        if (!rowData.empty()) { // Avoid adding empty vectors if blank lines exist
+             pageData.push_back(rowData);
+        }
+    }
+    fin.close();
+
+    if (pageData.empty()) {
+        logger.log("BTree::fetchNode - Warning: Index node file was empty or unreadable: " + nodeFileName);
+        // Return an empty node object but mark pageIndex? Or return nullptr?
+        // Returning nullptr is probably safer as the state is invalid.
+        return nullptr;
+    }
+
+    // Create a default node object
+    BTreeNode* node = new BTreeNode(order, leafOrder); // Pass order/leafOrder if needed by constructor
+    // Deserialize using the data read from the file
+    node->deserialize(pageData, order, leafOrder);
+    // Set the page index for the node object
+    node->pageIndex = pageIndex;
+
+     // Add a check after deserialization
+     if (node->keyCount < 0) { // Simple validity check based on deserialize logic
+          logger.log("BTree::fetchNode - Error: Deserialization failed for node " + std::to_string(pageIndex));
+          delete node;
+          return nullptr;
+     }
+
+
     return node;
 }
 
 void BTree::writeNode(BTreeNode* node) {
     if (!node || node->pageIndex < 0) return;
+    // Added detailed logging before serialization
+    logger.log("BTree::writeNode - Preparing to write Node " + std::to_string(node->pageIndex) + " | In-memory keyCount: " + std::to_string(node->keyCount));
+    std::string keys_str = ""; for(int k : node->keys) keys_str += std::to_string(k) + " ";
+    logger.log("BTree::writeNode - In-memory Keys: [" + keys_str + "]");
+    if (node->isLeaf) {
+        std::string ptrs_str = ""; for(const auto& rp : node->recordPointers) ptrs_str += "{" + std::to_string(rp.first) + "," + std::to_string(rp.second) + "} ";
+        logger.log("BTree::writeNode - In-memory Record Pointers: [" + ptrs_str + "]");
+    } else {
+        std::string child_str = ""; for(int p : node->childrenPageIndices) child_str += std::to_string(p) + " ";
+        logger.log("BTree::writeNode - In-memory Child Pointers: [" + child_str + "]");
+    }
+    // End of added logging
+
+    std::string nodeFileName = "../data/temp/" + indexName + "_Node" + std::to_string(node->pageIndex);
+
+    // Serialize the node's state into the vector<vector<int>> format
     std::vector<std::vector<int>> pageData;
     node->serialize(pageData, order, leafOrder);
-    int simulatedRowCount = pageData.size();
-    bufferManager.writePage(indexName, node->pageIndex, pageData, simulatedRowCount);
+
+    // Instead of BufferManager, write directly using ofstream
+    std::ofstream fout(nodeFileName, std::ios::trunc); // Truncate to overwrite
+    if (!fout.is_open()) {
+        logger.log("BTree::writeNode - Error: Could not open index node file for writing: " + nodeFileName);
+        return;
+    }
+
+    for (const auto& row : pageData) {
+        for (size_t i = 0; i < row.size(); ++i) {
+            fout << row[i] << (i == row.size() - 1 ? "" : " "); // Space separated
+        }
+        fout << std::endl;
+    }
+    fout.close();
+     logger.log("BTree::writeNode - Finished writing node " + std::to_string(node->pageIndex)); // Added Log
 }
 
 bool BTree::buildIndex(Table* table) {
@@ -441,15 +484,21 @@ void BTree::startNewTree(int key, RecordPointer pointer) {
 }
 
 void BTree::insertIntoLeaf(int leafPageIndex, int key, RecordPointer pointer) {
+    logger.log("BTree::insertIntoLeaf - Called for Key: " + std::to_string(key) + " Pointer: {" + std::to_string(pointer.first) + "," + std::to_string(pointer.second) + "} into Page: " + std::to_string(leafPageIndex)); // Added Log
     BTreeNode* leaf = fetchNode(leafPageIndex);
     if (!leaf) { logger.log("BTree::insertIntoLeaf - Error: Could not fetch leaf node " + std::to_string(leafPageIndex)); return; }
+    logger.log("BTree::insertIntoLeaf - Fetched node " + std::to_string(leafPageIndex) + ". Current keyCount: " + std::to_string(leaf->keyCount)); // Added Log
     auto it = std::lower_bound(leaf->keys.begin(), leaf->keys.end(), key);
     int insertPos = std::distance(leaf->keys.begin(), it);
+    logger.log("BTree::insertIntoLeaf - Page " + std::to_string(leafPageIndex) + " InsertPos: " + std::to_string(insertPos)); // Added Log
 
     if (!leaf->isFull(order, leafOrder)) {
+        logger.log("BTree::insertIntoLeaf - Inserting into non-full leaf."); // Added Log
         leaf->insertLeafEntry(key, pointer, insertPos);
+        logger.log("BTree::insertIntoLeaf - After insertLeafEntry, keyCount: " + std::to_string(leaf->keyCount) + ". Calling writeNode."); // Added Log
         writeNode(leaf);
     } else {
+        logger.log("BTree::insertIntoLeaf - Leaf is full. Splitting."); // Added Log
         std::vector<int> tempKeys = leaf->keys;
         std::vector<RecordPointer> tempPointers = leaf->recordPointers;
         tempKeys.insert(tempKeys.begin() + insertPos, key);
@@ -460,20 +509,26 @@ void BTree::insertIntoLeaf(int leafPageIndex, int key, RecordPointer pointer) {
         rightNode->parentPageIndex = leaf->parentPageIndex;
         int midPoint = (leafOrder + 1) / 2;
         int splitKey = tempKeys[midPoint];
+        // Assign data to new right node
         rightNode->keys.assign(tempKeys.begin() + midPoint, tempKeys.end());
         rightNode->recordPointers.assign(tempPointers.begin() + midPoint, tempPointers.end());
         rightNode->keyCount = rightNode->keys.size();
+        // Update original left node
         leaf->keys.assign(tempKeys.begin(), tempKeys.begin() + midPoint);
         leaf->recordPointers.assign(tempPointers.begin(), tempPointers.begin() + midPoint);
         leaf->keyCount = midPoint;
+        // Update linked list pointers
         rightNode->nextLeafPageIndex = leaf->nextLeafPageIndex;
         leaf->nextLeafPageIndex = newRightNodePageIndex;
+
+        logger.log("BTree::insertIntoLeaf - Writing split nodes. Left (" + std::to_string(leaf->pageIndex) + ") keyCount: " + std::to_string(leaf->keyCount) + ". Right (" + std::to_string(rightNode->pageIndex) + ") keyCount: " + std::to_string(rightNode->keyCount)); // Added Log
         writeNode(leaf);
         writeNode(rightNode);
         insertIntoParent(leaf->pageIndex, splitKey, newRightNodePageIndex);
         delete rightNode;
     }
     delete leaf;
+    logger.log("BTree::insertIntoLeaf - Finished for Key: " + std::to_string(key)); // Added Log
 }
 
 void BTree::insertIntoParent(int leftChildPageIndex, int key, int rightChildPageIndex) {
@@ -486,18 +541,47 @@ void BTree::insertIntoParent(int leftChildPageIndex, int key, int rightChildPage
         int newRootPageIndex = allocateNewNodePage();
         BTreeNode* newRoot = new BTreeNode(order, leafOrder, /*isLeaf=*/false);
         newRoot->pageIndex = newRootPageIndex;
-        newRoot->parentPageIndex = -1;
-        newRoot->insertInternalEntry(key, rightChildPageIndex, 0); // Inserts key[0] and child[1]
-        newRoot->childrenPageIndices[0] = leftChildPageIndex; // Set first child explicitly
-        writeNode(newRoot);
+        newRoot->parentPageIndex = -1; // Root's parent is -1
+
+        // --- FIX START ---
+        // Explicitly set the single key and the two children for the new root.
+        // A new root created from a split always has one key and two children.
+        newRoot->keys.push_back(key); // The key that was pushed up from the split
+        newRoot->keyCount = 1;
+        newRoot->childrenPageIndices.push_back(leftChildPageIndex);  // Pointer to the original node (now left child)
+        newRoot->childrenPageIndices.push_back(rightChildPageIndex); // Pointer to the new node from the split (now right child)
+        // --- FIX END ---
+
+        // Remove the old, incorrect logic:
+        // newRoot->insertInternalEntry(key, rightChildPageIndex, 0); // This was causing issues
+        // newRoot->childrenPageIndices[0] = leftChildPageIndex; // This was overwriting incorrectly
+
+        logger.log("BTree::insertIntoParent - Writing new root node " + std::to_string(newRootPageIndex)); // Added log for clarity
+        writeNode(newRoot); // Write the correctly formed root node
+
+        // Update parent pointers of the children nodes to point to the new root
         BTreeNode* left = fetchNode(leftChildPageIndex);
         BTreeNode* right = fetchNode(rightChildPageIndex);
-        if(left) { left->parentPageIndex = newRootPageIndex; writeNode(left); delete left; }
-        if(right) { right->parentPageIndex = newRootPageIndex; writeNode(right); delete right; }
-        rootPageIndex = newRootPageIndex;
-        delete newRoot;
+        if(left) {
+            left->parentPageIndex = newRootPageIndex;
+            writeNode(left);
+            delete left;
+        } else {
+            logger.log("BTree::insertIntoParent - WARNING: Could not fetch left child " + std::to_string(leftChildPageIndex) + " to update parent pointer.");
+        }
+        if(right) {
+            right->parentPageIndex = newRootPageIndex;
+            writeNode(right);
+            delete right;
+        } else {
+             logger.log("BTree::insertIntoParent - WARNING: Could not fetch right child " + std::to_string(rightChildPageIndex) + " to update parent pointer.");
+        }
+
+        rootPageIndex = newRootPageIndex; // Update the BTree's root page index
+        // metadataManager.updateRootPage(rootPageIndex); // Assuming you have metadata persistence
+        delete newRoot; // Delete the in-memory representation
         logger.log("BTree::insertIntoParent - Created new root at page " + std::to_string(newRootPageIndex));
-        return;
+        return; // Finished creating the new root
     }
 
     BTreeNode* parentNode = fetchNode(parentPageIndex);
