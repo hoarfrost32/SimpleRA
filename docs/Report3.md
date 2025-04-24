@@ -73,10 +73,68 @@ KARWAL/PAUL FILL IN HERE (AND ANY OTHER SECTIONS IF NEEDED)
 -   **Metadata:** `table->rowCount` and `table->rowsPerBlockCount` remain unchanged by `UPDATE`.
 -   **Efficiency:** Uses index for `WHERE` lookup when possible. Modifies only affected data pages. Index maintenance is conditional and logarithmic, avoiding unnecessary updates if the indexed key didn't change.
 
-## Assumptions
+### INDEX
 
-1.  **B+ Tree Implementation:** Assumes the provided `BTree` class (`index.h`, `index.cpp`) correctly implements `insertKey`, `deleteKey`, and `searchKey` operations, managing its own node splits/merges and adhering to memory limits internally. Assumes `deleteKey(key)` correctly handles potential duplicate keys as intended for this application (either removing all or requiring pointer-specific deletion, which the current executor logic would need adjustment for if the latter is true).
-2.  **Page Modification:** Assumes rewriting an entire page via `bufferManager.writePage` after modifying rows in memory is the accepted method for simulating in-place updates/deletions in the absence of finer-grained page modification capabilities (like a `Page::updateRow` method).
+**Syntax:** `INDEX ON <column_name> FROM <table_name> USING BTREE`
+
+**Functionality:** Creates a B+ Tree index on the specified column of the given table.
+
+**Implementation Details:**
+
+1.  **Structure:**
+    *   A B+ Tree structure is used, consisting of internal nodes and leaf nodes.
+    *   Internal nodes store keys and pointers (page indices) to child nodes.
+    *   Leaf nodes store keys and `RecordPointer`s (`{pageIndex, rowIndex}`) pointing to the actual data rows in the table's pages.
+    *   Leaf nodes are linked together sequentially using `nextLeafPageIndex` to facilitate efficient range queries.
+    *   The tree's `order` (p, max pointers in internal nodes) and `leafOrder` (Pleaf, max record pointers in leaf nodes) are calculated based on the global `BLOCK_SIZE` and the size of keys (int) and pointers (int or `RecordPointer`), aiming to fit nodes within a single block/page ([`BTree::BTree`](src/index.cpp)).
+
+2.  **Node Representation (`BTreeNode`):**
+    *   The [`BTreeNode`](src/index.h) class represents both internal and leaf nodes.
+    *   Members include `isLeaf`, `keys`, `childrenPageIndices` (for internal), `recordPointers` (for leaf), `nextLeafPageIndex` (for leaf), `parentPageIndex`, `pageIndex`, and `keyCount` ([`BTreeNode`](src/index.h)).
+
+3.  **Storage and I/O:**
+    *   Each `BTreeNode` is stored as a separate file in the `../data/temp/` directory, named `<indexName>_Node<pageIndex>` (e.g., `STUDENTS2_math_index_Node0`).
+    *   Serialization ([`BTreeNode::serialize`](src/index.cpp)) writes the node's state into a 3-row format:
+        *   Row 0: Metadata (`isLeaf`, `keyCount`, `parentPageIndex`, `nextLeafPageIndex` if leaf).
+        *   Row 1: Keys (`std::vector<int>`).
+        *   Row 2: Pointers (`std::vector<int>` for children or flattened `std::vector<RecordPointer>` for data).
+    *   Deserialization ([`BTreeNode::deserialize`](src/index.cpp)) reads this file format.
+    *   Node I/O is handled directly using `std::ofstream` ([`BTree::writeNode`](src/index.cpp)) and `std::ifstream` ([`BTree::fetchNode`](src/index.cpp)), bypassing the `BufferManager` used for table pages.
+    *   New node pages are allocated sequentially by incrementing a counter ([`BTree::allocateNewNodePage`](src/index.cpp)).
+
+4.  **Core Operations:**
+    *   **Build (`BTree::buildIndex`):** Iterates through all rows of the source table using a `Cursor`. For each row, extracts the key and calculates the `RecordPointer`. Calls `insertKey` to add the entry to the tree ([`BTree::buildIndex`](src/index.cpp)).
+    *   **Insertion (`BTree::insertKey`):** Finds the appropriate leaf node using `findLeafNodePageIndex`. Calls `insertIntoLeaf` ([`BTree::insertKey`](src/index.cpp)). If the tree is empty, it calls `startNewTree` ([`BTree::startNewTree`](src/index.cpp)).
+    *   **Leaf Insertion (`BTree::insertIntoLeaf`):** Inserts the key and `RecordPointer` into the sorted leaf node. If the leaf is full ([`BTreeNode::isFull`](src/index.cpp)), it splits the leaf: temporary vectors hold combined keys/pointers, the node is split at the midpoint, the new right node is created and written, the linked list pointers (`nextLeafPageIndex`) are updated, and `insertIntoParent` is called with the middle key ([`BTree::insertIntoLeaf`](src/index.cpp)).
+    *   **Parent Insertion (`BTree::insertIntoParent`):** Inserts a key (from a child split) and the new child pointer into the correct position in the parent node. If the parent is full, it splits recursively, potentially creating a new root node if the original root splits ([`BTree::insertIntoParent`](src/index.cpp)). Correctly handles setting keys and child pointers when creating a new root ([`BTree::insertIntoParent`](src/index.cpp)).
+    *   **Deletion (`BTree::deleteKey`):** Finds the leaf node containing the key ([`BTree::findLeafNodePageIndex`](src/index.cpp)). Removes *all* occurrences of the key and associated `RecordPointer`s from the leaf ([`BTreeNode::removeLeafEntry`](src/index.cpp)). If the node becomes underflowed ([`BTreeNode::isMinimal`](src/index.cpp)), `handleUnderflow` is called. Finally, `adjustRoot` is called to potentially shrink the tree height ([`BTree::deleteKey`](src/index.cpp)).
+    *   **Underflow Handling (`BTree::handleUnderflow`):** Finds a sibling node ([`BTree::findSiblingPageIndex`](src/index.cpp)). Attempts to borrow an entry from the sibling if the sibling has more than the minimum required entries ([`BTree::borrowFromLeafSibling`](src/index.cpp)). If borrowing is not possible, it merges the node with a sibling ([`BTree::mergeLeafNodes`](src/index.cpp)), removing an entry from the parent. If the parent underflows due to the merge, `handleUnderflow` is called recursively on the parent ([`BTree::handleUnderflow`](src/index.cpp)). *Note: Borrowing and merging for internal nodes are currently stubbed ([`BTree::borrowFromInternalSibling`](src/index.cpp), [`BTree::mergeInternalNodes`](src/index.cpp)).*
+    *   **Root Adjustment (`BTree::adjustRoot`):** Checks if the root node is an internal node with only one child after a deletion/merge. If so, the single child becomes the new root, and the old root page is deleted ([`BTree::adjustRoot`](src/index.cpp)). Also handles the case where the tree becomes completely empty.
+    *   **Search (`BTree::searchKey`, `BTree::searchRange`):** Finds the starting leaf node using `findLeafNodePageIndex`. For `searchKey`, it uses `std::lower_bound` to find the key(s) in the leaf. For `searchRange`, it iterates from the `startKey` position and follows the `nextLeafPageIndex` pointers until keys exceed `endKey` ([`BTree::searchKey`](src/index.cpp), [`BTree::searchRange`](src/index.cpp)).
+
+5.  **Index Dropping (`BTree::dropIndex`):** Iterates from 0 up to the current `nodeCount` and attempts to delete each corresponding node file (`../data/temp/<indexName>_Node<i>`). Resets `rootPageIndex` and `nodeCount`.
+
+**Why B+ Tree:**
+
+*   **Efficient Disk I/O:** B+ Trees are optimized for disk-based storage. Their high branching factor (determined by `order`) minimizes the number of disk reads (node fetches) required to locate data, resulting in logarithmic time complexity for search, insertion, and deletion.
+*   **Range Queries:** The linked list connecting leaf nodes allows for efficient sequential scanning of data within a specified range without traversing back up the tree.
+*   **Balanced Structure:** Insertion and deletion algorithms maintain tree balance, ensuring worst-case performance guarantees.
+
+**Assumptions:**
+
+1.  **Index Node I/O:** Index nodes (`BTreeNode`) are read from and written to individual files directly using `ifstream`/`ofstream`, not managed by the `BufferManager`.
+2.  **Data Types:** Keys stored in the index are assumed to be integers. `RecordPointer`s store integer page and row indices.
+3.  **Order Calculation:** The `order` and `leafOrder` are calculated based on `BLOCK_SIZE` and the `sizeof(int)` and `sizeof(RecordPointer)`. Assumes these sizes are consistent and the calculation provides reasonable node sizes.
+4.  **Concurrency:** Assumes a single-user environment; no locking or concurrency control mechanisms are implemented for index operations.
+5.  **Storage Location:** Index node files are stored in the fixed relative path `../data/temp/`.
+6.  **Deletion Semantics:** `deleteKey(key)` removes *all* entries matching the key within the found leaf node.
+7.  **Incomplete Features:** Borrowing and merging operations for *internal* nodes during deletion underflow are not fully implemented (stubs exist).
+8.  **Persistence:** The index structure (root page index, node count) is not persisted between program executions. The index must be rebuilt using the `INDEX` command each time the program starts.
+
+## Overall Assumptions
+
+
+1.  **Page Modification:** Assumes rewriting an entire page via `bufferManager.writePage` after modifying rows in memory is the accepted method for simulating in-place updates/deletions in the absence of finer-grained page modification capabilities (like a `Page::updateRow` method).
 3.  **Data Types:** Assumes all table data and query literals involved in conditions and updates are integers.
 4.  **Concurrency:** Assumes a single-user environment with no concurrent operations.
 5.  **Function Availability:** Assumes helper functions like `evaluateBinOp` are correctly accessible.
