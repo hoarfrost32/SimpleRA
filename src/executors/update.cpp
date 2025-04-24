@@ -1,6 +1,11 @@
 #include "../global.h"
-#include <regex>
-
+#include <vector>
+#include <string>
+#include <algorithm> // Needed for std::remove_if
+#include "../table.h"
+#include "../page.h"
+#include "../index.h"
+#include "../bufferManager.h"
 /**
  * Supported limited grammar:
  *   UPDATE <table> SET <col> = <int> WHERE <col2> <binop> <int>
@@ -151,41 +156,282 @@ void executeUPDATE()
 	logger.log("executeUPDATE");
 
 	Table *table = tableCatalogue.getTable(parsedQuery.updateRelationName);
-	int tgtIndex = table->getColumnIndex(parsedQuery.updateTargetColumn);
-	int condIndex = table->getColumnIndex(parsedQuery.updateCondColumn);
-
-	/* --- create temp csv -------------------------------------------- */
-	string tmpCSV = table->sourceFileName + ".upd";
-	ofstream fout(tmpCSV, ios::trunc);
-
-	/* header */
-	table->writeRow<string>(table->columns, fout);
-
-	/* iterate rows */
-	Cursor cursor = table->getCursor();
-	vector<int> row = cursor.getNext();
-	long long rowsTouched = 0;
-
-	while (!row.empty())
+	if (!table)
 	{
-		if (evaluateBinOp(row[condIndex], parsedQuery.updateCondValue,
-						  parsedQuery.updateCondOperator))
-		{
-			/* apply operation – only SET_LITERAL in Phase 3 */
-			row[tgtIndex] = parsedQuery.updateLiteral;
-			rowsTouched++;
-		}
-		writeIntRow(fout, row);
-		row = cursor.getNext();
+		cout << "FATAL ERROR: Table '" << parsedQuery.updateRelationName << "' not found during execution." << endl;
+		return;
 	}
-	fout.close();
+	if (table->columnCount == 0)
+	{
+		cout << "ERROR: Table '" << table->tableName << "' has no columns. Cannot update." << endl;
+		return;
+	}
 
-	/* swap files */
-	remove(table->sourceFileName.c_str());
-	rename(tmpCSV.c_str(), table->sourceFileName.c_str());
+	// Get indices for relevant columns
+	int targetColIndex = table->getColumnIndex(parsedQuery.updateTargetColumn);
+	int condColIndex = table->getColumnIndex(parsedQuery.updateCondColumn);
 
-	/* rebuild pages */
-	table->reload();
+	if (targetColIndex < 0)
+	{
+		cout << "SEMANTIC ERROR: Target column '" << parsedQuery.updateTargetColumn << "' not found." << endl;
+		return;
+	}
+	if (condColIndex < 0)
+	{
+		cout << "SEMANTIC ERROR: Condition column '" << parsedQuery.updateCondColumn << "' not found." << endl;
+		return;
+	}
 
-	cout << rowsTouched << " row(s) updated in \"" << table->tableName << "\"\n";
+	long long rowsUpdatedCounter = 0;
+	vector<RecordPointer> pointersToUpdate; // Store {pageIdx, rowIdxInPage}
+
+	// --- 1. Find Rows to Update (using Full Table Scan for Phase 1) ---
+	logger.log("executeUPDATE: Scanning table to find matching rows...");
+
+	bool indexUsed = false;
+	// Conditions to use index: table indexed, index object exists, WHERE column is the indexed column, operator is EQUAL
+	if (table->indexed && table->index != nullptr &&
+		parsedQuery.updateCondColumn == table->indexedColumn &&
+		parsedQuery.updateCondOperator == EQUAL)
+	{
+		// ** Use Index Lookup **
+		logger.log("executeUPDATE: Using index on column '" + table->indexedColumn + "' to find rows where key == " + to_string(parsedQuery.updateCondValue));
+		pointersToUpdate = table->index->searchKey(parsedQuery.updateCondValue);
+		indexUsed = true;
+		logger.log("executeUPDATE: Index search returned " + to_string(pointersToUpdate.size()) + " potential rows.");
+
+		// ** Integrated Pointer Validation Step **
+		size_t originalPointerCount = pointersToUpdate.size();
+		pointersToUpdate.erase(
+			std::remove_if(pointersToUpdate.begin(), pointersToUpdate.end(),
+						   [&](const RecordPointer &p)
+						   {
+							   // Check basic bounds: page index valid? row index non-negative?
+							   if (p.first < 0 || p.first >= table->blockCount || p.second < 0)
+							   {
+								   logger.log("executeUPDATE: Validation - Removing invalid pointer {page=" + to_string(p.first) + ", row=" + to_string(p.second) + "} (Basic bounds check failed).");
+								   return true; // Remove this pointer
+							   }
+							   // Check if row index is within the bounds for that *specific* page using table metadata
+							   if (p.first >= table->rowsPerBlockCount.size())
+							   {
+								   logger.log("executeUPDATE: Validation - Removing invalid pointer {page=" + to_string(p.first) + ", row=" + to_string(p.second) + "} (Page index out of bounds for rowsPerBlockCount lookup).");
+								   return true; // Remove this pointer
+							   }
+							   if (p.second >= table->rowsPerBlockCount[p.first])
+							   {
+								   logger.log("executeUPDATE: Validation - Removing invalid pointer {page=" + to_string(p.first) + ", row=" + to_string(p.second) + "} (Row index >= rows in page " + to_string(table->rowsPerBlockCount[p.first]) + ").");
+								   return true; // Remove this pointer
+							   }
+							   return false; // Keep this pointer
+						   }),
+			pointersToUpdate.end());
+
+		if (pointersToUpdate.size() < originalPointerCount)
+		{
+			logger.log("executeUPDATE: Validation - Removed " + to_string(originalPointerCount - pointersToUpdate.size()) + " invalid pointers. Valid pointers count: " + to_string(pointersToUpdate.size()));
+		}
+		else
+		{
+			// logger.log("executeUPDATE: Validation - All pointers returned by index seem valid based on metadata."); // Can be verbose
+		}
+		// ** End of Integrated Pointer Validation Step **
+	}
+	else
+	{
+		// ** Fallback to Full Table Scan **
+		if (table->indexed && table->index != nullptr)
+		{ // Check index object exists
+			logger.log("executeUPDATE: Index exists but cannot be used for this query (Column='" + parsedQuery.updateCondColumn + "', Operator=" + to_string(parsedQuery.updateCondOperator) + "). Performing table scan.");
+		}
+		else
+		{
+			logger.log("executeUPDATE: Table not indexed or index object missing. Performing table scan.");
+		}
+
+		int condColIndex = table->getColumnIndex(parsedQuery.updateCondColumn); // Moved calculation here, only needed for scan
+
+		Cursor cursor = table->getCursor();
+		vector<int> row = cursor.getNext();
+
+		while (!row.empty())
+		{
+			// Calculate pointer for the current row
+			int currentPageIndex = cursor.pageIndex;
+			int currentRowInPage = cursor.pagePointer - 1; // Index of the row just returned
+
+			// Basic validation for pointer calculation during scan
+			if (currentRowInPage < 0 || currentPageIndex < 0 || currentPageIndex >= table->blockCount)
+			{
+				// Check specific case of first row: pageIndex=0, pagePointer=1 -> currentRowInPage=0. This is valid.
+				if (!(currentPageIndex == 0 && cursor.pagePointer == 1 && currentRowInPage == 0))
+				{
+					logger.log("executeUPDATE: Warning - Invalid pointer calculation during scan (Page=" + to_string(currentPageIndex) + ", RowPtr=" + to_string(cursor.pagePointer) + ", RowIdx=" + to_string(currentRowInPage) + "). Skipping row check.");
+					row = cursor.getNext();
+					continue; // Skip processing this potentially invalid state
+				}
+				// Handle the first row case correctly
+				currentRowInPage = 0;
+			}
+
+			// Check the WHERE condition
+			if (condColIndex < 0)
+			{ // Check condition column index validity once
+				logger.log("executeUPDATE: Error - Condition column index invalid during scan setup.");
+				break; // Stop scan
+			}
+			if (condColIndex >= row.size())
+			{
+				logger.log("executeUPDATE: Error - Row size mismatch during scan. Row size=" + to_string(row.size()) + ", Cond Idx=" + to_string(condColIndex));
+				break; // Stop scan if schema mismatch detected
+			}
+
+			if (evaluateBinOp(row[condColIndex], parsedQuery.updateCondValue, parsedQuery.updateCondOperator))
+			{
+				pointersToUpdate.push_back({currentPageIndex, currentRowInPage});
+			}
+			row = cursor.getNext();
+		}
+		logger.log("executeUPDATE: Scan complete. Found " + to_string(pointersToUpdate.size()) + " rows matching criteria.");
+		indexUsed = false; // Explicitly set for clarity
+	}
+
+	// --- 2. Process Updates (Pointer by Pointer) ---
+	// Note: Updating page by page might be slightly more efficient if many rows
+	// are updated on the same page, but pointer by pointer is simpler to implement first.
+
+	int indexedColIdx = -1; // Get this once if table is indexed
+	bool isIndexed = table->indexed && table->index != nullptr;
+	if (isIndexed)
+	{
+		indexedColIdx = table->getColumnIndex(table->indexedColumn);
+		if (indexedColIdx < 0)
+		{
+			cout << "INTERNAL ERROR: Indexed column '" << table->indexedColumn << "' not found during UPDATE execution." << endl;
+			logger.log("executeUPDATE: ERROR - Indexed column not found for index update.");
+			// Abort because index maintenance will fail.
+			return;
+		}
+	}
+
+	logger.log("executeUPDATE: Processing updates...");
+	for (const auto &pointer : pointersToUpdate)
+	{
+		int pageIndex = pointer.first;
+		int rowIndexInPage = pointer.second;
+
+		logger.log("executeUPDATE: Updating row at {" + to_string(pageIndex) + ", " + to_string(rowIndexInPage) + "}");
+
+		Page page = bufferManager.getPage(table->tableName, pageIndex);
+		int loadedRowCount = page.getRowCount();
+		if (loadedRowCount <= rowIndexInPage)
+		{ // Check if row index is valid for the loaded page
+			cout << "ERROR: Row index " << rowIndexInPage << " out of bounds for page " << pageIndex << " (size " << loadedRowCount << ")." << endl;
+			logger.log("executeUPDATE: ERROR - Row index out of bounds for page " + to_string(pageIndex));
+			continue; // Skip this pointer
+		}
+
+		// Get original row data
+		vector<int> originalRow = page.getRow(rowIndexInPage);
+		if (originalRow.empty())
+		{
+			cout << "ERROR: Failed to read original row " << rowIndexInPage << " from page " << pageIndex << "." << endl;
+			logger.log("executeUPDATE: ERROR - Failed to read original row " + to_string(rowIndexInPage) + " page " + to_string(pageIndex));
+			continue; // Skip this pointer
+		}
+
+		// Store old value if indexed column might be affected
+		int oldIndexedValue = -1;
+		if (isIndexed && indexedColIdx == targetColIndex)
+		{ // Only store if target IS the indexed column
+			if (indexedColIdx >= originalRow.size())
+			{
+				logger.log("executeUPDATE: Warning - Row size mismatch getting old indexed value.");
+			}
+			else
+			{
+				oldIndexedValue = originalRow[indexedColIdx];
+			}
+		}
+
+		// Create modified row
+		vector<int> modifiedRow = originalRow;
+		modifiedRow[targetColIndex] = parsedQuery.updateLiteral;
+
+		// Get new value if indexed column was affected
+		int newIndexedValue = -1;
+		if (isIndexed && indexedColIdx == targetColIndex)
+		{ // Only get if target IS the indexed column
+			if (indexedColIdx >= modifiedRow.size())
+			{
+				logger.log("executeUPDATE: Warning - Row size mismatch getting new indexed value.");
+			}
+			else
+			{
+				newIndexedValue = modifiedRow[indexedColIdx];
+			}
+		}
+
+		// ** Rewrite the entire page **
+		// This is inefficient but necessary without a Page::updateRow method.
+		vector<vector<int>> pageRows;
+		pageRows.reserve(loadedRowCount);
+		bool readError = false;
+		for (int i = 0; i < loadedRowCount; ++i)
+		{
+			if (i == rowIndexInPage)
+			{
+				pageRows.push_back(modifiedRow); // Use the modified row
+			}
+			else
+			{
+				vector<int> currentRow = page.getRow(i);
+				if (currentRow.empty() && i < loadedRowCount)
+				{
+					logger.log("executeUPDATE: Error reading row " + to_string(i) + " while rewriting page " + to_string(pageIndex));
+					readError = true;
+					break; // Stop processing this page
+				}
+				if (!currentRow.empty())
+				{
+					pageRows.push_back(currentRow); // Use original row
+				}
+			}
+		}
+
+		if (readError)
+		{
+			logger.log("executeUPDATE: Aborting update for page " + to_string(pageIndex) + " due to read error.");
+			continue; // Skip to the next pointer
+		}
+
+		bufferManager.writePage(table->tableName, pageIndex, pageRows, loadedRowCount); // Row count doesn't change
+
+		// ** Index Maintenance **
+		if (isIndexed && indexedColIdx == targetColIndex && oldIndexedValue != newIndexedValue)
+		{
+			// Condition: Table indexed, the target *was* the indexed column, AND the value changed.
+			logger.log("executeUPDATE: Index maintenance required for key change from " + to_string(oldIndexedValue) + " to " + to_string(newIndexedValue));
+
+			// **** Adapt deleteKey call based on BTree implementation ****
+			logger.log("executeUPDATE: Calling index->deleteKey(" + to_string(oldIndexedValue) + ")");
+			if (!table->index->deleteKey(oldIndexedValue))
+			{
+				logger.log("executeUPDATE: WARNING - BTree deleteKey returned false for old key " + to_string(oldIndexedValue));
+				// Potential inconsistency: old entry might still be there.
+			}
+
+			logger.log("executeUPDATE: Calling index->insertKey(" + to_string(newIndexedValue) + ", {" + to_string(pageIndex) + "," + to_string(rowIndexInPage) + "})");
+			if (!table->index->insertKey(newIndexedValue, pointer))
+			{
+				logger.log("executeUPDATE: WARNING - BTree insertKey returned false for new key " + to_string(newIndexedValue));
+				// Potential inconsistency: new entry might be missing.
+			}
+		}
+		rowsUpdatedCounter++;
+	}
+
+	// --- 3. Print Result ---
+	cout << rowsUpdatedCounter << " row(s) updated in \"" << table->tableName << "\"." << endl;
+	// table->rowCount remains unchanged.
 }
