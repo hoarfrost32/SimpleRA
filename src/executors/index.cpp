@@ -1,6 +1,7 @@
 #include "../global.h"
 #include "../table.h" // Make sure Table definition is included
 #include "../index.h" // Make sure BTree definition is included
+#include <memory>
 
 /**
  * @brief
@@ -55,129 +56,117 @@ bool semanticParseINDEX()
 		return false;
 	}
 
-    // Handle Cases:
-    // 1. Trying to index (BTREE/HASH) an already indexed table.
-    // 2. Trying to remove (NOTHING) index from a non-indexed table.
-    // 3. Trying to create an index on a different column than the existing one.
-	if (table->indexed) // Table already has an index
-	{
-        if (parsedQuery.indexingStrategy == NOTHING) {
-             // Trying to remove the index - check if it's on the specified column
-             if (table->indexedColumn != parsedQuery.indexColumnName) {
-                 cout << "SEMANTIC ERROR: Table '" << parsedQuery.indexRelationName
-                      << "' is indexed on column '" << table->indexedColumn
-                      << "', not '" << parsedQuery.indexColumnName << "'. Cannot remove." << endl;
-                 return false;
-             }
-             // OK to remove index on the specified column
-             return true;
-        } else {
-            // Trying to create a new index (BTREE/HASH)
-             cout << "SEMANTIC ERROR: Table '" << parsedQuery.indexRelationName
-                  << "' is already indexed on column '" << table->indexedColumn << "'." << endl;
-             return false;
-        }
-	}
-    else // Table is not indexed
-    {
-        if (parsedQuery.indexingStrategy == NOTHING) {
-            // Trying to remove index from a non-indexed table
-            cout << "SEMANTIC ERROR: Table '" << parsedQuery.indexRelationName << "' is not indexed." << endl;
+    // Check if an index already exists *on this specific column*
+    bool indexExistsOnColumn = table->isIndexed(parsedQuery.indexColumnName);
+
+    if (parsedQuery.indexingStrategy == NOTHING) {
+        // Trying to remove index
+        if (!indexExistsOnColumn) {
+            cout << "SEMANTIC ERROR: No index exists on column '" << parsedQuery.indexColumnName
+                 << "' in table '" << parsedQuery.indexRelationName << "' to remove." << endl;
             return false;
-        } else {
-            // Trying to create a new index (BTREE/HASH) - This is allowed.
-            return true;
         }
+        // OK to remove existing index on this column
+        return true;
+    } else {
+        // Trying to create index (BTREE or HASH)
+        if (indexExistsOnColumn) {
+            cout << "SEMANTIC ERROR: An index already exists on column '" << parsedQuery.indexColumnName
+                 << "' in table '" << parsedQuery.indexRelationName << "'." << endl;
+            return false;
+        }
+        // OK to create index on this column
+        return true;
     }
 }
 
 void executeINDEX()
 {
-	logger.log("executeINDEX");
+    logger.log("executeINDEX");
 
     Table* table = tableCatalogue.getTable(parsedQuery.indexRelationName);
-    int columnIndex = table->getColumnIndex(parsedQuery.indexColumnName); // Already validated in semantic parse
+    if (!table) {
+        // Semantic parse should prevent this, but check anyway
+        cout << "FATAL ERROR: Table '" << parsedQuery.indexRelationName << "' not found during execution." << endl;
+        return;
+    }
+    int columnIndex = table->getColumnIndex(parsedQuery.indexColumnName);
+    if (columnIndex < 0) {
+        // Semantic parse should prevent this
+        cout << "FATAL ERROR: Column '" << parsedQuery.indexColumnName << "' not found during execution." << endl;
+        return;
+    }
 
-	switch (parsedQuery.indexingStrategy)
+    // std::unique_ptr<BTree> newIndex; // OLD
+    BTree* newIndexPtr = nullptr; // NEW: Use raw pointer, initialize to nullptr
+
+    switch (parsedQuery.indexingStrategy)
     {
         case BTREE:
-            // Check if already indexed (should have been caught in semantic, but double-check)
-            if (table->indexed) {
-                 cout << "Error: executeINDEX called to create BTREE on already indexed table." << endl;
+            if (table->isIndexed(parsedQuery.indexColumnName)) {
+                 cout << "Error: executeINDEX called to create BTREE on already indexed column '" << parsedQuery.indexColumnName << "'." << endl;
                  return;
             }
             cout << "Building B+ Tree index on column '" << parsedQuery.indexColumnName
                  << "' for table '" << parsedQuery.indexRelationName << "'..." << endl;
 
-            // Create the B+ Tree object
-            table->index = new BTree(table->tableName, parsedQuery.indexColumnName, columnIndex);
+            // Create the B+ Tree object using new
+            // newIndex = std::make_unique<BTree>(table->tableName, parsedQuery.indexColumnName, columnIndex); // OLD
+            newIndexPtr = new BTree(table->tableName, parsedQuery.indexColumnName, columnIndex); // NEW
 
             // Build the index using data from the table
-            if (table->index->buildIndex(table)) {
-                // Update table metadata
-                table->indexed = true;
-                table->indexedColumn = parsedQuery.indexColumnName;
-                table->indexingStrategy = BTREE;
-                // Optional: Persist index info (e.g., table->index->getRootPageIndex()) if needed across sessions
-                cout << "Successfully created B+ Tree index." << endl;
-                // Optionally print tree stats or leaf chain for debugging
-                // table->index->printTree();
-                // table->index->printLeafChain();
+            if (newIndexPtr->buildIndex(table)) {
+                // Add the successfully built index to the table's map
+                // if (table->addIndex(parsedQuery.indexColumnName, std::move(newIndex))) { // OLD
+                if (table->addIndex(parsedQuery.indexColumnName, newIndexPtr)) { // NEW: Pass raw pointer
+                    cout << "Successfully created B+ Tree index on column '" << parsedQuery.indexColumnName << "'." << endl;
+                    // newIndexPtr is now owned by the table, do not delete here.
+                } else {
+                    // This should ideally not happen if semantic check passed
+                    cout << "Error: Failed to add the created index to the table's metadata (maybe already exists?)." << endl;
+                    // Table did not take ownership, so we need to clean up.
+                    if(newIndexPtr) {
+                        newIndexPtr->dropIndex(); // Attempt to clean up files
+                        delete newIndexPtr;       // Delete the object
+                    }
+                }
             } else {
-                 cout << "Error: Failed to build B+ Tree index." << endl;
-                 // Clean up the partially created index object and files
-                 if (table->index) {
-                    table->index->dropIndex(); // Attempt to delete files
-                    delete table->index;
-                    table->index = nullptr;
+                 cout << "Error: Failed to build B+ Tree index for column '" << parsedQuery.indexColumnName << "'." << endl;
+                 // buildIndex failed, clean up the allocated object
+                 if(newIndexPtr) {
+                    // dropIndex might have been called internally by buildIndex on failure,
+                    // but call again just in case. It should be safe to call multiple times.
+                    newIndexPtr->dropIndex();
+                    delete newIndexPtr; // Delete the object
                  }
             }
             break;
 
         case HASH:
              cout << "Error: HASH index strategy not implemented." << endl;
-             // If implemented:
-             // Create HashIndex object
-             // Build hash index
-             // Update table metadata
              break;
 
-        case NOTHING:
-             // Check if it's actually indexed (should have been caught in semantic)
-             if (!table->indexed) {
-                 cout << "Error: executeINDEX called to remove index from non-indexed table." << endl;
-                 return;
-             }
-             // Check if removing the correct index column
-             if (table->indexedColumn != parsedQuery.indexColumnName) {
-                  cout << "Error: executeINDEX called to remove index on wrong column." << endl;
-                  return;
+        case NOTHING: // This corresponds to removing an index
+             if (!table->isIndexed(parsedQuery.indexColumnName)) {
+                 cout << "Error: executeINDEX called to remove index from non-indexed column '" << parsedQuery.indexColumnName << "'." << endl;
+                 return; // Should be caught by semantic parse
              }
 
              cout << "Removing index on column '" << parsedQuery.indexColumnName
                   << "' from table '" << parsedQuery.indexRelationName << "'..." << endl;
 
-             if (table->index != nullptr) {
-                // Drop the index (deletes files)
-                table->index->dropIndex();
-                // Delete the BTree object
-                delete table->index;
-                table->index = nullptr; // Important: reset pointer
+             // Remove the index using the table's method (which now handles deletion)
+             if (table->removeIndex(parsedQuery.indexColumnName)) {
+                 cout << "Successfully removed index from column '" << parsedQuery.indexColumnName << "'." << endl;
              } else {
-                // Should not happen if table->indexed is true, but handle defensively
-                 logger.log("executeINDEX - Warning: Table marked as indexed but index pointer was null.");
+                 // Should not happen if semantic check passed
+                 cout << "Error: Failed to remove index from column '" << parsedQuery.indexColumnName << "' (not found?)." << endl;
              }
-
-             // Update table metadata
-             table->indexed = false;
-             table->indexedColumn = "";
-             table->indexingStrategy = NOTHING;
-             cout << "Successfully removed index." << endl;
              break;
 
         default:
              cout << "Error: Unknown indexing strategy encountered in executeINDEX." << endl;
              break;
     }
-	return;
+    return;
 }

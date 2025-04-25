@@ -3,16 +3,18 @@
 
 #pragma once
 #include "cursor.h"
-// #include "index.h" // <-- Include BTree header
+#include "index.h" // <-- Include BTree header
 #include <string>   // <-- Include for string
 #include <vector>   // <-- Include for vector
 #include <unordered_set> // <-- Include for unordered_set
 #include <fstream>  // <-- Include for ostream/ofstream
 #include <iostream> // <-- Include for ostream
+#include <unordered_map>
+#include <memory>
 
 
 // Forward declare BTree to avoid circular dependency if index.h includes table.h
-class BTree;
+// class BTree;
 
 enum IndexingStrategy
 {
@@ -54,12 +56,15 @@ public:
     // int indexNodeCount = 0;        // Optional: Persist node count here if needed
 	// --- End Indexing Information ---
 
+	unordered_map<string, BTree*> indexes; // Maps column names to their indices
+
 	bool extractColumnNames(string firstLine);
 	bool blockify();
 	void updateStatistics(vector<int> row);
 	Table();
 	Table(string tableName);
 	Table(string tableName, vector<string> columns);
+	~Table();
 	bool load();
 	bool isColumn(string columnName);
 	void renameColumn(string fromColumnName, string toColumnName);
@@ -71,6 +76,14 @@ public:
 	bool reload();
 	int getColumnIndex(string columnName);
 	void unload(); // unload needs to also handle deleting the index object
+
+	// --- Index Management Methods ---
+    bool isIndexed(const string& columnName) const;
+    BTree* getIndex(const string& columnName) const;
+    bool addIndex(const string& columnName, BTree* index);
+    bool removeIndex(const string& columnName);
+    void removeAllIndexes(); // Helper to clear all indexes
+    // --- End Index Management Methods ---
 
 	/**
 	 * @brief Static function that takes a vector of valued and prints them out in a

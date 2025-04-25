@@ -5,12 +5,14 @@
 
 #include "bufferManager.h"
 #include "page.h" // Need Page for reading table data during build and node deserialization
-#include "table.h" // Need Table for metadata
+// #include "table.h" // Need Table for metadata
 #include <vector>
 #include <string>
 #include <optional> // For optional return values
 #include <cmath>    // For ceil
 #include <algorithm> // For lower_bound etc.
+
+class Table;
 
 // Define a structure for data pointers in leaf nodes
 // pageIndex: The index of the page file in the TABLE's storage

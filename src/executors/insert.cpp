@@ -274,44 +274,53 @@ void executeINSERT()
 	// 4. Update total row count for the table
 	table->rowCount++;
 
-	// 5. Index Maintenance
-	if (table->indexed && table->index != nullptr)
-	{
-		logger.log("executeINSERT: Updating index for column '" + table->indexedColumn + "'");
-		int indexedColIdx = table->getColumnIndex(table->indexedColumn);
-		if (indexedColIdx < 0)
-		{
-			cout << "INTERNAL ERROR: Indexed column '" << table->indexedColumn << "' not found during INSERT execution." << endl;
-			logger.log("executeINSERT: ERROR - Indexed column not found.");
-		}
-		else
-		{
-			// Ensure the row has enough columns before accessing
-			if (indexedColIdx >= newRow.size())
-			{
-				cout << "INTERNAL ERROR: Row size mismatch when accessing indexed column." << endl;
-				logger.log("executeINSERT: ERROR - Row size (" + to_string(newRow.size()) + ") too small for indexed column index (" + to_string(indexedColIdx) + ")");
-			}
-			else
-			{
-				int key = newRow[indexedColIdx];
-				RecordPointer recordPointer = {targetPageIndex, rowIndexInPage};
-				logger.log("executeINSERT: Calling index->insertKey(" + to_string(key) + ", {" + to_string(recordPointer.first) + "," + to_string(recordPointer.second) + "})");
+	// 5. Index Maintenance: Update ALL indexes for this table
+    if (!table->indexes.empty()) // Check if there are any indexes at all
+    {
+        logger.log("executeINSERT: Updating indexes for table '" + table->tableName + "'...");
+        RecordPointer recordPointer = {targetPageIndex, rowIndexInPage};
 
-				// Call the B+ Tree insert function
-				if (!table->index->insertKey(key, recordPointer))
-				{
-					// Optional: Handle insertion failure if BTree::insertKey returns bool
-					logger.log("executeINSERT: WARNING - BTree insertKey returned false.");
-					// Consider if you need error recovery here. Maybe reverse the data insertion? Complex.
-				}
-			}
-		}
-	}
-	else
-	{
-		// logger.log("executeINSERT: No index update needed (table not indexed or index object missing).");
-	}
+        // Iterate through all indexes associated with the table
+        for (auto const& [columnName, indexPtr] : table->indexes)
+        {
+            if (indexPtr) { // Check if the unique_ptr holds a valid BTree object
+                logger.log("executeINSERT: Updating index for column '" + columnName + "'");
+                int indexedColIdx = table->getColumnIndex(columnName); // Get index for the column this index is for
+
+                if (indexedColIdx < 0)
+                {
+                    // This indicates an inconsistency between the indexes map and table columns
+                    cout << "INTERNAL ERROR: Column '" << columnName << "' for existing index not found in table schema during INSERT." << endl;
+                    logger.log("executeINSERT: ERROR - Column for index '" + columnName + "' not found.");
+                    // Decide whether to continue updating other indexes or abort. Continuing might be okay.
+                    continue;
+                }
+
+                // Ensure the row has enough columns before accessing
+                if (indexedColIdx >= newRow.size())
+                {
+                    cout << "INTERNAL ERROR: Row size mismatch when accessing indexed column '" << columnName << "'." << endl;
+                    logger.log("executeINSERT: ERROR - Row size (" + to_string(newRow.size()) + ") too small for indexed column index (" + to_string(indexedColIdx) + ")");
+                    continue; // Skip updating this index
+                }
+
+                int key = newRow[indexedColIdx];
+                // Call insertKey on the specific BTree object
+                logger.log("executeINSERT: Calling index->insertKey(" + to_string(key) + ", {" + to_string(recordPointer.first) + "," + to_string(recordPointer.second) + "}) for index on column '" + columnName + "'");
+                if (!indexPtr->insertKey(key, recordPointer)) {
+                    logger.log("executeINSERT: Warning - Failed to insert key " + std::to_string(key) + " into index for column '" + columnName + "'.");
+                    // Index might become inconsistent. Consider how to handle this.
+                } else {
+                     // logger.log("executeINSERT: Successfully inserted key " + std::to_string(key) + " into index for column '" + columnName + "'."); // Can be verbose
+                }
+            } else {
+                 logger.log("executeINSERT: Warning - Found null index pointer in map for column '" + columnName + "'. Skipping update.");
+            }
+        }
+        logger.log("executeINSERT: Finished updating indexes.");
+    } else {
+         logger.log("executeINSERT: No indexes to update for table '" + table->tableName + "'.");
+    }
 
 	// 6. Print Success Message
 	cout << "1 row inserted into \"" << table->tableName << "\". Row Count = " << table->rowCount << endl;

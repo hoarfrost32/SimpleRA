@@ -490,6 +490,12 @@ bool Table::isPermanent()
 	return false;
 }
 
+// Destructor: Cleans up indexes when Table object is destroyed
+Table::~Table() {
+    logger.log("Table::~Table - Destructor called for table: " + this->tableName);
+    this->removeAllIndexes(); // Use the helper to clean up
+}
+
 /**
  * @brief The unload function removes the table from the database by deleting
  * all temporary files created as part of this table, including page files
@@ -497,25 +503,59 @@ bool Table::isPermanent()
  * associated index object if one exists.
  *
  */
+// void Table::unload()
+// {
+// 	logger.log("Table::unload - Unloading table: " + this->tableName);
+
+//     // Delete the B+ Tree index object and its files if it exists
+//     if (this->index != nullptr) {
+//         logger.log("Table::unload - Dropping associated index for column: " + this->indexedColumn);
+//         this->index->dropIndex(); // Deletes index node pages
+//         delete this->index;       // Deletes the BTree object itself
+//         this->index = nullptr;
+//         this->indexed = false;
+//         this->indexedColumn = "";
+//         this->indexingStrategy = NOTHING;
+//     }
+
+//     // Delete the table's data page files from the temp directory
+// 	for (uint pageCounter = 0; pageCounter < this->blockCount; pageCounter++) { // Use uint for consistency
+// 		bufferManager.deleteFile(this->tableName, pageCounter); // Deletes ../data/temp/<tableName>_Page<i>
+//     }
+
+//     // Delete the source CSV file ONLY if it's temporary (in ../data/temp/)
+// 	if (!isPermanent() && !this->sourceFileName.empty()) {
+//          logger.log("Table::unload - Deleting temporary source file: " + this->sourceFileName);
+// 		 bufferManager.deleteFile(this->sourceFileName);
+//     } else {
+//          logger.log("Table::unload - Keeping permanent source file: " + this->sourceFileName);
+//     }
+
+//     // Reset table state (optional, as object might be deleted soon after)
+//     // this->columns.clear();
+//     // this->rowsPerBlockCount.clear();
+//     // this->distinctValuesPerColumnCount.clear();
+//     // this->rowCount = 0;
+//     // this->blockCount = 0;
+//     // this->columnCount = 0;
+
+// }
+
 void Table::unload()
 {
-	logger.log("Table::unload - Unloading table: " + this->tableName);
-
-    // Delete the B+ Tree index object and its files if it exists
-    if (this->index != nullptr) {
-        logger.log("Table::unload - Dropping associated index for column: " + this->indexedColumn);
-        this->index->dropIndex(); // Deletes index node pages
-        delete this->index;       // Deletes the BTree object itself
-        this->index = nullptr;
-        this->indexed = false;
-        this->indexedColumn = "";
-        this->indexingStrategy = NOTHING;
+    logger.log("Table::unload - Unloading table: " + this->tableName);
+    // Delete page files
+    for (int i = 0; i < this->blockCount; i++)
+    {
+        string pageName = "../data/temp/" + this->tableName + "_Page" + to_string(i);
+        bufferManager.deleteFile(pageName);
     }
-
-    // Delete the table's data page files from the temp directory
-	for (uint pageCounter = 0; pageCounter < this->blockCount; pageCounter++) { // Use uint for consistency
-		bufferManager.deleteFile(this->tableName, pageCounter); // Deletes ../data/temp/<tableName>_Page<i>
-    }
+    // Clear table metadata (optional, as object might be destroyed anyway)
+    this->blockCount = 0;
+    this->rowCount = 0;
+    this->rowsPerBlockCount.clear();
+    this->distinctValuesInColumns.clear();
+    this->distinctValuesPerColumnCount.clear();
 
     // Delete the source CSV file ONLY if it's temporary (in ../data/temp/)
 	if (!isPermanent() && !this->sourceFileName.empty()) {
@@ -525,14 +565,9 @@ void Table::unload()
          logger.log("Table::unload - Keeping permanent source file: " + this->sourceFileName);
     }
 
-    // Reset table state (optional, as object might be deleted soon after)
-    // this->columns.clear();
-    // this->rowsPerBlockCount.clear();
-    // this->distinctValuesPerColumnCount.clear();
-    // this->rowCount = 0;
-    // this->blockCount = 0;
-    // this->columnCount = 0;
-
+    // Delete all associated index files and objects
+    this->removeAllIndexes();
+    logger.log("Table::unload - Finished unloading: " + this->tableName);
 }
 
 /**
@@ -623,4 +658,88 @@ bool Table::reload()
          logger.log("Table::reload - Failed to blockify during reload.");
     }
     return success;
+}
+
+// --- Index Management Method Implementations ---
+
+/**
+ * @brief Checks if an index exists for the specified column.
+ * @param columnName The name of the column to check.
+ * @return true if an index exists for the column, false otherwise.
+ */
+bool Table::isIndexed(const string& columnName) const {
+    return this->indexes.count(columnName) > 0;
+}
+
+/**
+ * @brief Retrieves the BTree index object for the specified column.
+ * @param columnName The name of the indexed column.
+ * @return Pointer to the BTree object, or nullptr if no index exists for the column.
+ */
+BTree* Table::getIndex(const string& columnName) const {
+    auto it = this->indexes.find(columnName);
+    if (it != this->indexes.end()) {
+        return it->second; // Return raw pointer from unique_ptr
+    }
+    return nullptr;
+}
+
+/**
+ * @brief Adds a new index to the table for a specific column.
+ * Takes ownership of the provided BTree object via unique_ptr.
+ * @param columnName The name of the column being indexed.
+ * @param index A unique_ptr to the newly created BTree object.
+ * @return true if the index was added successfully, false if an index already exists for this column.
+ */
+bool Table::addIndex(const string& columnName, BTree* index) {
+    if (this->isIndexed(columnName)) {
+        logger.log("Table::addIndex - Error: Index already exists for column '" + columnName + "' in table '" + this->tableName + "'.");
+        return false; // Don't overwrite existing index
+    }
+    if (!index) {
+         logger.log("Table::addIndex - Error: Provided index pointer is null for column '" + columnName + "'.");
+         return false;
+    }
+    logger.log("Table::addIndex - Adding index for column '" + columnName + "' to table '" + this->tableName + "'.");
+    this->indexes[columnName] = index; // Move ownership to the map
+    return true;
+}
+
+/**
+ * @brief Removes the index for the specified column.
+ * Drops the index (deletes files) and deletes the BTree object from memory.
+ * @param columnName The name of the column whose index should be removed.
+ * @return true if the index was found and removed, false otherwise.
+ */
+bool Table::removeIndex(const string& columnName) {
+    auto it = this->indexes.find(columnName);
+    if (it != this->indexes.end()) {
+        logger.log("Table::removeIndex - Removing index for column '" + columnName + "' from table '" + this->tableName + "'.");
+        BTree* indexPtr = it->second;
+        if (indexPtr) {
+            indexPtr->dropIndex(); // Delete associated files
+            delete indexPtr;       // Delete the BTree object itself
+        }
+        this->indexes.erase(it); // Remove the pointer from the map
+        return true;
+    } else {
+        logger.log("Table::removeIndex - Warning: No index found for column '" + columnName + "' in table '" + this->tableName + "'.");
+        return false;
+    }
+}
+
+/**
+ * @brief Removes all indexes associated with this table.
+ * Drops all index files and deletes all BTree objects.
+ */
+void Table::removeAllIndexes() {
+    logger.log("Table::removeAllIndexes - Removing all indexes for table '" + this->tableName + "'.");
+    for (auto const& [colName, indexPtr] : this->indexes) {
+        if (indexPtr) {
+            logger.log("Table::removeAllIndexes - Dropping and deleting index for column '" + colName + "'.");
+            indexPtr->dropIndex(); // Delete associated files
+            delete indexPtr;       // Delete the BTree object
+        }
+    }
+    this->indexes.clear(); // Clear the map of pointers
 }

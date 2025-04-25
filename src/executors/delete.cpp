@@ -100,97 +100,105 @@ static void writeIntRow(ofstream &fout, const vector<int> &row)
 
 void executeDELETE()
 {
-	logger.log("executeDELETE");
+    logger.log("executeDELETE");
+    Table *table = tableCatalogue.getTable(parsedQuery.deleteRelationName);
+    if (!table)
+    {
+        cout << "FATAL ERROR: Table '" << parsedQuery.deleteRelationName << "' not found during execution." << endl;
+        return;
+    }
 
-	Table *table = tableCatalogue.getTable(parsedQuery.deleteRelationName);
-	if (!table)
+    vector<RecordPointer> pointersToDelete; // Store {pageIdx, rowIdxInPage}
+    map<RecordPointer, vector<int>> deletedRowData; // Store actual data for index maintenance {ptr -> rowData}
+    bool indexUsed = false;
+    BTree *indexToUse = nullptr; // Pointer to the specific index if used
+
+    // --- 1. Find Rows to Delete ---
+	// Conditions to use index: WHERE column is indexed, operator is EQUAL
+	if (parsedQuery.deleteCondOperator == EQUAL && table->isIndexed(parsedQuery.deleteCondColumn))
 	{
-		cout << "FATAL ERROR: Table '" << parsedQuery.deleteRelationName << "' not found during execution." << endl;
-		return;
-	}
-	if (table->columnCount == 0)
-	{
-		cout << "ERROR: Table '" << table->tableName << "' has no columns. Cannot delete." << endl;
-		return;
-	}
-
-	int condColIndex = table->getColumnIndex(parsedQuery.deleteCondColumn);
-	if (condColIndex < 0)
-	{
-		cout << "SEMANTIC ERROR: Condition column '" << parsedQuery.deleteCondColumn << "' not found." << endl;
-		// Error message might have already been printed by getColumnIndex
-		return;
-	}
-
-	long long initialRowCount = table->rowCount; // Store for final count calculation
-	long long rowsDeletedCounter = 0;
-
-	// --- 1. Find Rows to Delete (using Full Table Scan for Phase 1) ---
-	vector<RecordPointer> pointersToDelete; // Store {pageIdx, rowIdxInPage}
-
-	bool indexUsed = false;
-	// Conditions to use index: table indexed, index object exists, WHERE column is the indexed column, operator is EQUAL
-	if (table->indexed && table->index != nullptr &&
-		parsedQuery.deleteCondColumn == table->indexedColumn &&
-		parsedQuery.deleteCondOperator == EQUAL)
-	{
-		// ** Use Index Lookup **
-		logger.log("executeDELETE: Using index on column '" + table->indexedColumn + "' to find rows where key == " + to_string(parsedQuery.deleteCondValue));
-		pointersToDelete = table->index->searchKey(parsedQuery.deleteCondValue);
-		indexUsed = true;
-		logger.log("executeDELETE: Index search returned " + to_string(pointersToDelete.size()) + " potential rows.");
-
-		// ** Integrated Pointer Validation Step **
-		size_t originalPointerCount = pointersToDelete.size();
-		pointersToDelete.erase(
-			std::remove_if(pointersToDelete.begin(), pointersToDelete.end(),
-						   [&](const RecordPointer &p)
-						   {
-							   // Check basic bounds: page index valid? row index non-negative?
-							   if (p.first < 0 || p.first >= table->blockCount || p.second < 0)
-							   {
-								   logger.log("executeDELETE: Validation - Removing invalid pointer {page=" + to_string(p.first) + ", row=" + to_string(p.second) + "} (Basic bounds check failed).");
-								   return true; // Remove this pointer
-							   }
-							   // Check if row index is within the bounds for that *specific* page using table metadata
-							   // Need to ensure page index itself is valid for rowsPerBlockCount lookup first
-							   if (p.first >= table->rowsPerBlockCount.size())
-							   {
-								   logger.log("executeDELETE: Validation - Removing invalid pointer {page=" + to_string(p.first) + ", row=" + to_string(p.second) + "} (Page index out of bounds for rowsPerBlockCount lookup).");
-								   return true; // Remove this pointer
-							   }
-							   if (p.second >= table->rowsPerBlockCount[p.first])
-							   {
-								   logger.log("executeDELETE: Validation - Removing invalid pointer {page=" + to_string(p.first) + ", row=" + to_string(p.second) + "} (Row index >= rows in page " + to_string(table->rowsPerBlockCount[p.first]) + ").");
-								   return true; // Remove this pointer
-							   }
-							   return false; // Keep this pointer
-						   }),
-			pointersToDelete.end());
-
-		if (pointersToDelete.size() < originalPointerCount)
+		indexToUse = table->getIndex(parsedQuery.deleteCondColumn); // Get index for the condition column
+		if (indexToUse != nullptr) // Check if index object actually exists
 		{
-			logger.log("executeDELETE: Validation - Removed " + to_string(originalPointerCount - pointersToDelete.size()) + " invalid pointers. Valid pointers count: " + to_string(pointersToDelete.size()));
+			// ** Use Index Lookup **
+			logger.log("executeDELETE: Using index on column '" + parsedQuery.deleteCondColumn + "' to find rows where key == " + to_string(parsedQuery.deleteCondValue));
+			pointersToDelete = indexToUse->searchKey(parsedQuery.deleteCondValue);
+			indexUsed = true;
+			logger.log("executeDELETE: Index search returned " + to_string(pointersToDelete.size()) + " potential rows.");
+
+			// ** Integrated Pointer Validation Step **
+			size_t originalPointerCount = pointersToDelete.size();
+			pointersToDelete.erase(
+				std::remove_if(pointersToDelete.begin(), pointersToDelete.end(),
+								[&](const RecordPointer &p)
+								{
+									// Check basic bounds: page index valid? row index non-negative?
+									if (p.first < 0 || p.first >= table->blockCount || p.second < 0)
+									{
+										logger.log("executeDELETE: Validation - Removing invalid pointer {page=" + to_string(p.first) + ", row=" + to_string(p.second) + "} (Basic bounds check failed).");
+										return true; // Remove this pointer
+									}
+									// Check if row index is within the bounds for that *specific* page using table metadata
+									if (p.first >= table->rowsPerBlockCount.size())
+									{
+										logger.log("executeDELETE: Validation - Removing invalid pointer {page=" + to_string(p.first) + ", row=" + to_string(p.second) + "} (Page index out of bounds for rowsPerBlockCount lookup).");
+										return true; // Remove this pointer
+									}
+									if (p.second >= table->rowsPerBlockCount[p.first])
+									{
+										logger.log("executeDELETE: Validation - Removing invalid pointer {page=" + to_string(p.first) + ", row=" + to_string(p.second) + "} (Row index >= rows in page " + to_string(table->rowsPerBlockCount[p.first]) + ").");
+										return true; // Remove this pointer
+									}
+									return false; // Keep this pointer
+								}),
+				pointersToDelete.end());
+
+			if (pointersToDelete.size() < originalPointerCount)
+			{
+				logger.log("executeDELETE: Validation - Removed " + to_string(originalPointerCount - pointersToDelete.size()) + " invalid pointers. Valid pointers count: " + to_string(pointersToDelete.size()));
+			}
+			// ** End of Integrated Pointer Validation Step **
+
+			// Fetch row data for valid pointers found via index
+			for (const auto &ptr : pointersToDelete)
+			{
+				Page page = bufferManager.getPage(table->tableName, ptr.first);
+				vector<int> row = page.getRow(ptr.second);
+				if (!row.empty())
+				{
+					deletedRowData[ptr] = row;
+				}
+				else
+				{
+					logger.log("executeDELETE: Warning - Could not fetch row data for pointer {" + to_string(ptr.first) + "," + to_string(ptr.second) + "} found via index. Index might be stale.");
+					// Keep the pointer in pointersToDelete, but it won't have data in deletedRowData for index maintenance.
+				}
+			}
 		}
 		else
 		{
-			// logger.log("executeDELETE: Validation - All pointers returned by index seem valid based on metadata."); // Can be verbose
+			logger.log("executeDELETE: Column '" + parsedQuery.deleteCondColumn + "' marked as indexed, but index object is null. Falling back to scan.");
 		}
-		// ** End of Integrated Pointer Validation Step **
 	}
-	else
+
+	// Fallback to Full Table Scan if index not used or not applicable
+	if (!indexUsed)
 	{
-		// ** Fallback to Full Table Scan **
-		if (table->indexed && table->index != nullptr)
-		{ // Check index != nullptr here too
-			logger.log("executeDELETE: Index exists but cannot be used for this query (Column='" + parsedQuery.deleteCondColumn + "', Operator=" + to_string(parsedQuery.deleteCondOperator) + "). Performing table scan.");
+		if (!table->indexes.empty())
+		{ // Log only if indexes exist but weren't used
+			logger.log("executeDELETE: Index(es) exist but cannot be used for this query (Column='" + parsedQuery.deleteCondColumn + "', Operator=" + to_string(parsedQuery.deleteCondOperator) + "). Performing table scan.");
 		}
 		else
 		{
-			logger.log("executeDELETE: Table not indexed or index object missing. Performing table scan.");
+			logger.log("executeDELETE: Table not indexed or index not usable. Performing table scan.");
 		}
 
-		int condColIndex = table->getColumnIndex(parsedQuery.deleteCondColumn); // Moved calculation here, only needed for scan
+		int condColIndex = table->getColumnIndex(parsedQuery.deleteCondColumn);
+		if (condColIndex < 0)
+		{
+			cout << "SEMANTIC ERROR: Column '" << parsedQuery.deleteCondColumn << "' not found for WHERE clause." << endl;
+			return; // Abort if condition column doesn't exist
+		}
 
 		Cursor cursor = table->getCursor();
 		vector<int> row = cursor.getNext();
@@ -204,166 +212,202 @@ void executeDELETE()
 			// Basic validation for pointer calculation during scan
 			if (currentRowInPage < 0 || currentPageIndex < 0 || currentPageIndex >= table->blockCount)
 			{
-				// Check specific case of first row: pageIndex=0, pagePointer=1 -> currentRowInPage=0. This is valid.
 				if (!(currentPageIndex == 0 && cursor.pagePointer == 1 && currentRowInPage == 0))
 				{
 					logger.log("executeDELETE: Warning - Invalid pointer calculation during scan (Page=" + to_string(currentPageIndex) + ", RowPtr=" + to_string(cursor.pagePointer) + ", RowIdx=" + to_string(currentRowInPage) + "). Skipping row check.");
 					row = cursor.getNext();
-					continue; // Skip processing this potentially invalid state
+					continue;
 				}
-				// Handle the first row case correctly
 				currentRowInPage = 0;
 			}
-
-			// Check the WHERE condition
-			if (condColIndex < 0)
-			{ // Check condition column index validity once
-				logger.log("executeDELETE: Error - Condition column index invalid during scan setup.");
-				break; // Stop scan
-			}
+			// Check row size before accessing column
 			if (condColIndex >= row.size())
 			{
-				logger.log("executeDELETE: Error - Row size mismatch during scan. Row size=" + to_string(row.size()) + ", Cond Idx=" + to_string(condColIndex));
-				// Should not happen if CSV is consistent, but safety first
-				break; // Stop scan if schema mismatch detected
+				logger.log("executeDELETE: Error - Row size mismatch during scan. Row size=" + to_string(row.size()) + ", Cond Idx=" + to_string(condColIndex) + ". Skipping row.");
+				row = cursor.getNext();
+				continue;
 			}
 
 			if (evaluateBinOp(row[condColIndex], parsedQuery.deleteCondValue, parsedQuery.deleteCondOperator))
 			{
-				pointersToDelete.push_back({currentPageIndex, currentRowInPage});
+				RecordPointer ptr = {currentPageIndex, currentRowInPage};
+				pointersToDelete.push_back(ptr);
+				deletedRowData[ptr] = row; // Store row data for index maintenance
 			}
 			row = cursor.getNext();
 		}
 		logger.log("executeDELETE: Scan complete. Found " + to_string(pointersToDelete.size()) + " rows matching criteria.");
-		indexUsed = false; // Explicitly set for clarity
-	}
-	// --- 2. Group Deletions by Page ---
-	map<int, vector<int>> rowsToDeleteByPage;
-	for (const auto &pointer : pointersToDelete)
-	{
-		rowsToDeleteByPage[pointer.first].push_back(pointer.second);
 	}
 
-	// Sort row indices within each page's list for efficient processing
-	for (auto &pair : rowsToDeleteByPage)
-	{
-		sort(pair.second.begin(), pair.second.end());
-	}
+    // --- If no rows to delete, exit early ---
+    if (pointersToDelete.empty())
+    {
+        cout << "No rows matched the criteria. 0 rows deleted from table '" << table->tableName << "'." << endl;
+        logger.log("executeDELETE: No rows to delete.");
+        return;
+    }
 
-	int indexedColIdx = -1; // Get this only once if needed
-	if (table->indexed && table->index != nullptr)
-	{
-		indexedColIdx = table->getColumnIndex(table->indexedColumn);
-		if (indexedColIdx < 0)
-		{
-			cout << "INTERNAL ERROR: Indexed column '" << table->indexedColumn << "' not found during DELETE execution." << endl;
-			logger.log("executeDELETE: ERROR - Indexed column not found for index update.");
-			// Proceed without index update? Or abort? Abort seems safer.
-			return;
-		}
-	}
+    // --- 2. Group Deletions by Page ---
+    map<int, vector<int>> rowsToDeleteByPage;
+    for (const auto &pointer : pointersToDelete)
+    {
+        rowsToDeleteByPage[pointer.first].push_back(pointer.second);
+    }
 
-	// --- 3. Process Deletions Page by Page ---
-	logger.log("executeDELETE: Processing deletions page by page...");
-	for (auto const &page_pair : rowsToDeleteByPage)
-	{															  // Iterate through key-value pairs
-		int pageIndex = page_pair.first;						  // Extract the page index (key)
-		const vector<int> &rowIndicesToDelete = page_pair.second; // Extract the vector (value)
+    // Sort row indices within each page's list for efficient processing (descending order for stable removal)
+    for (auto &pair : rowsToDeleteByPage)
+    {
+        sort(pair.second.rbegin(), pair.second.rend()); // Sort descending
+    }
 
-		logger.log("executeDELETE: Processing page " + to_string(pageIndex));
-		Page page = bufferManager.getPage(table->tableName, pageIndex);
-		int loadedRowCount = page.getRowCount();
-		if (loadedRowCount < 0)
-		{
-			cout << "ERROR: Failed to load page " << pageIndex << " for deletion." << endl;
-			logger.log("executeDELETE: ERROR - Failed loading page " + to_string(pageIndex));
-			// Problem: some rows might already be deleted from index. State is inconsistent.
-			// For now, continue and hope for the best, or abort? Let's continue but log error.
-			continue;
-		}
+    // --- 3. Process Deletions Page by Page ---
+    logger.log("executeDELETE: Processing deletions page by page...");
+    long long totalRowsDeleted = 0;
+    vector<uint> newRowsPerBlockCount = table->rowsPerBlockCount; // Copy to update safely
+    bool pageRewriteErrorOccurred = false; // Flag to track if any page failed
 
-		vector<vector<int>> keptRows;
-		keptRows.reserve(loadedRowCount); // Reserve approximate space
-		// Use a set for O(1) average lookup of rows to delete on this page
-		set<int> deletionSet(rowIndicesToDelete.begin(), rowIndicesToDelete.end());
-		int deletedInThisPage = 0;
+    for (auto const &[pageIndex, rowIndicesToDelete] : rowsToDeleteByPage)
+    {
+        Page page = bufferManager.getPage(table->tableName, pageIndex);
+        int originalRowCount = page.getRowCount(); // Use getter
+        if (originalRowCount < 0)
+        { // Basic check if getRowCount failed
+            logger.log("executeDELETE: Error - Failed to get row count for page " + to_string(pageIndex) + ". Skipping page.");
+            pageRewriteErrorOccurred = true; // Mark error and skip this page
+            continue;
+        }
 
-		for (int i = 0; i < loadedRowCount; ++i)
-		{
-			if (deletionSet.count(i))
-			{
-				// This row index 'i' needs to be deleted
-				deletedInThisPage++;
+        vector<vector<int>> keptRows;
+        keptRows.reserve(originalRowCount); // Reserve based on original count
+        bool readErrorOnPage = false;
 
-				// ** Index Maintenance **
-				if (table->indexed && table->index != nullptr && indexedColIdx >= 0)
-				{
-					vector<int> originalRow = page.getRow(i); // Get data before deleting
-					if (originalRow.empty())
-					{
-						logger.log("executeDELETE: Warning - Tried to get data for index delete from empty row " + to_string(i) + " in page " + to_string(pageIndex));
-						continue; // Skip index update if row data isn't readable
-					}
-					if (indexedColIdx >= originalRow.size())
-					{
-						logger.log("executeDELETE: Warning - Row size mismatch when getting key for index delete from row " + to_string(i) + " in page " + to_string(pageIndex));
-						continue; // Skip index update
-					}
+        int deletePtr = 0; // Pointer into the sorted rowIndicesToDelete vector
+        for (int i = 0; i < originalRowCount; ++i)
+        { // Iterate using row count
+            bool deleteThisRow = false;
+            if (deletePtr < rowIndicesToDelete.size() && i == rowIndicesToDelete[deletePtr])
+            {
+                // This row index matches the next one in the descending list to delete
+                deleteThisRow = true;
+                deletePtr++;
+            }
 
-					int key = originalRow[indexedColIdx];
-					RecordPointer pointerToDeleteFromIndex = {pageIndex, i};					   // The exact pointer
-					logger.log("executeDELETE: Calling index->deleteKey(" + to_string(key) + ")"); // Add pointer if needed: ", {" + to_string(pointerToDeleteFromIndex.first) + "," + to_string(pointerToDeleteFromIndex.second) + "})" );
+            if (!deleteThisRow)
+            {
+                vector<int> currentRow = page.getRow(i); // Use getter
+                if (currentRow.empty() && i < originalRowCount)
+                { // Check if getRow failed unexpectedly
+                    logger.log("executeDELETE: Error - Failed to get row " + to_string(i) + " from page " + to_string(pageIndex) + " while rebuilding. Skipping page.");
+                    readErrorOnPage = true; // Mark error for this page
+                    break;					// Stop processing this page
+                }
+                if (!currentRow.empty())
+                { // Only add if row was successfully retrieved
+                    keptRows.push_back(currentRow);
+                }
+            }
+        }
 
-					// **** IMPORTANT: Adapt this call based on how BTree::deleteKey is implemented ****
-					// If deleteKey needs the pointer: table->index->deleteKey(key, pointerToDeleteFromIndex);
-					// If deleteKey(key) deletes ALL occurrences of key:
-					if (!table->index->deleteKey(key))
-					{
-						logger.log("executeDELETE: WARNING - BTree deleteKey returned false for key " + to_string(key));
-					}
-					// If deleteKey(key) only deletes ONE arbitrary occurrence, this logic is insufficient for duplicates.
-				}
-			}
-			else
-			{
-				// Keep this row
-				vector<int> rowToKeep = page.getRow(i);
-				if (rowToKeep.empty() && i < loadedRowCount)
-				{
-					logger.log("executeDELETE: Warning - Got empty row " + to_string(i) + " from page " + to_string(pageIndex) + " when trying to keep it.");
-					// Skip adding this potentially corrupt row?
-					continue;
-				}
-				if (!rowToKeep.empty())
-				{
-					keptRows.push_back(rowToKeep);
-				}
-			}
-		}
+        // If a read error occurred while processing rows for this page, skip writing it back
+        if (readErrorOnPage)
+        {
+            logger.log("executeDELETE: Aborting rewrite for page " + to_string(pageIndex) + " due to previous getRow error.");
+            pageRewriteErrorOccurred = true; // Mark that an error occurred
+            continue;						 // Skip writing this page and updating metadata for it
+        }
 
-		// Write the modified (shorter) page back
-		bufferManager.writePage(table->tableName, pageIndex, keptRows, keptRows.size());
-		logger.log("executeDELETE: Rewrote page " + to_string(pageIndex) + " with " + to_string(keptRows.size()) + " rows (deleted " + to_string(deletedInThisPage) + ").");
+        // Write the modified page back (only if no error occurred for this page)
+        bufferManager.writePage(table->tableName, pageIndex, keptRows, keptRows.size());
+        logger.log("executeDELETE: Rewrote page " + to_string(pageIndex) + " with " + to_string(keptRows.size()) + " rows (deleted " + to_string(rowIndicesToDelete.size()) + ").");
 
-		// Update table metadata for this page
-		if (pageIndex >= table->rowsPerBlockCount.size())
-		{
-			cout << "INTERNAL ERROR: Metadata inconsistency - trying to update rowsPerBlockCount for out-of-bounds index " << pageIndex << endl;
-			logger.log("executeDELETE: Error updating metadata - index out of bounds for page " + to_string(pageIndex));
-			// Abort or continue with potentially corrupt metadata? Continue for now.
-		}
-		else
-		{
-			table->rowsPerBlockCount[pageIndex] = keptRows.size();
-		}
-		rowsDeletedCounter += deletedInThisPage; // Add to total count
-	}
+        // Update the count for this block in our temporary vector
+        if (pageIndex < newRowsPerBlockCount.size())
+        {
+            newRowsPerBlockCount[pageIndex] = keptRows.size();
+        }
+        else
+        {
+            logger.log("executeDELETE: Error - pageIndex " + to_string(pageIndex) + " out of bounds for newRowsPerBlockCount during update.");
+            pageRewriteErrorOccurred = true; // Mark error
+                                             // This indicates a serious issue if it happens.
+        }
+        // Accumulate deleted count only if page processing was successful
+        totalRowsDeleted += rowIndicesToDelete.size();
+    }
 
-	// --- 4. Update Final Table Metadata ---
-	table->rowCount = initialRowCount - rowsDeletedCounter; // Update total row count
-	// Note: blockCount might decrease if pages become empty, but we are not implementing
-	// page deletion/compaction in this phase. So blockCount remains unchanged.
+    // --- 4. Update Table Metadata (Only if no page rewrite errors occurred) ---
+    if (!pageRewriteErrorOccurred)
+    {
+        table->rowsPerBlockCount = newRowsPerBlockCount; // Assign the updated counts
+        table->rowCount -= totalRowsDeleted;
+        // Note: blockCount remains the same, pages are rewritten, not removed.
+        //       Distinct value counts are not updated here, would require re-scan.
+        cout << "Deleted " << totalRowsDeleted << " rows from table '" << table->tableName << "'. New Row Count: " << table->rowCount << endl;
+    }
+    else
+    {
+        cout << "ERROR: One or more pages could not be processed correctly during delete. Table metadata may be inconsistent." << endl;
+        logger.log("executeDELETE: Errors occurred during page processing. Table metadata update skipped.");
+        // Do not update table->rowCount or table->rowsPerBlockCount if errors occurred
+        // Index maintenance should also be skipped or handled carefully
+    }
 
-	// --- 5. Print Result ---
-	cout << rowsDeletedCounter << " row(s) deleted from \"" << table->tableName << "\". New Row Count = " << table->rowCount << endl;
+    // --- 5. Index Maintenance: Delete entries from ALL indexes (Only if no page rewrite errors) ---
+    if (totalRowsDeleted > 0 && !table->indexes.empty() && !pageRewriteErrorOccurred)
+    {
+        logger.log("executeDELETE: Performing index maintenance for " + to_string(totalRowsDeleted) + " deleted rows...");
+
+        // Iterate through each row that was successfully marked for deletion
+        for (const auto &pointer : pointersToDelete)
+        {
+            auto dataIt = deletedRowData.find(pointer);
+            if (dataIt == deletedRowData.end())
+            {
+                logger.log("executeDELETE: Warning - Row data not found for deleted pointer {" + to_string(pointer.first) + "," + to_string(pointer.second) + "}. Skipping index maintenance for this row.");
+                continue; // Skip if we couldn't store the row data earlier
+            }
+            const vector<int> &deletedRow = dataIt->second;
+
+            // Iterate through all indexes on the table
+            for (const auto &[colName, indexPtr] : table->indexes)
+            {
+                if (indexPtr)
+                {
+                    int idx = table->getColumnIndex(colName);
+                    if (idx >= 0 && idx < deletedRow.size())
+                    {
+                        int key = deletedRow[idx];
+
+                        // Use BTree::deleteKey(key) - This removes ALL entries for this key.
+                        // IMPORTANT: BTree::deleteKey needs to handle the case where the key
+                        // might have multiple pointers and only remove the specific one if possible,
+                        // or remove the key entirely if that's the intended behavior.
+                        // Assuming BTree::deleteKey(key) removes the key and all associated pointers.
+                        logger.log("executeDELETE: Calling index->deleteKey(" + to_string(key) + ") for index '" + indexPtr->getIndexName() + "' due to deletion of row at {" + to_string(pointer.first) + "," + to_string(pointer.second) + "}");
+                        if (!indexPtr->deleteKey(key))
+                        {
+                            // This might just mean the key wasn't found (e.g., if index was already inconsistent)
+                            // logger.log("executeDELETE: Info - BTree deleteKey returned false for key " + to_string(key) + " in index '" + indexPtr->getIndexName() + "' (Key might not have been present)."); // Can be verbose
+                        }
+                    }
+                    else
+                    {
+                        logger.log("executeDELETE: Warning - Could not get key for indexed column '" + colName + "' (index " + to_string(idx) + ") from deleted row data.");
+                    }
+                }
+            }
+        }
+        logger.log("executeDELETE: Finished index maintenance.");
+    }
+    else if (totalRowsDeleted > 0 && !pageRewriteErrorOccurred)
+    {
+        logger.log("executeDELETE: No indexes found on table '" + table->tableName + "'. Skipping index maintenance.");
+    }
+    else if (pageRewriteErrorOccurred)
+    {
+        logger.log("executeDELETE: Skipping index maintenance due to errors during page processing.");
+    }
+    // --- End Index Maintenance ---
+
+    return;
 }
