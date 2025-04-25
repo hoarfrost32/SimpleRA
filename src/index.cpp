@@ -17,7 +17,7 @@ BTreeNode::BTreeNode(int order, int leafOrder, bool leaf) :
     nextLeafPageIndex(-1),
     parentPageIndex(-1),
     pageIndex(-1), // Will be assigned when allocated
-    keyCount(0)
+keyCount(0)
 {
     int keyCapacity = isLeaf ? leafOrder : order - 1;
     keys.reserve(keyCapacity);
@@ -883,11 +883,29 @@ std::vector<RecordPointer> BTree::searchKey(int key) {
 std::vector<RecordPointer> BTree::searchRange(int startKey, int endKey) {
      logger.log("BTree::searchRange - Range: [" + std::to_string(startKey) + ", " + std::to_string(endKey) + "]");
     std::vector<RecordPointer> result;
-    int currentLeafPageIndex = findLeafNodePageIndex(startKey, rootPageIndex);
-    if (currentLeafPageIndex < 0) { logger.log("BTree::searchRange - Tree empty or range start not found."); return result; }
 
-    BTreeNode* currentNode = fetchNode(currentLeafPageIndex);
-    while (currentNode != nullptr && currentNode->isLeaf) {
+    // fflush(stdout); // Ensure the print happens before potential crash
+
+    int currentLeafPageIndex = findLeafNodePageIndex(startKey, rootPageIndex);
+    if (currentLeafPageIndex < 0) {
+        logger.log("BTree::searchRange - Tree empty or range start not found.");
+        return result;
+    }
+
+    BTreeNode* currentNode = nullptr; // Initialize to null
+
+    while (currentLeafPageIndex != -1) { // Loop while there's a valid leaf page index
+        currentNode = fetchNode(currentLeafPageIndex); // Fetch the current leaf node
+        if (!currentNode) {
+             logger.log("BTree::searchRange - Error: Failed to fetch leaf node " + std::to_string(currentLeafPageIndex));
+             break; // Stop if fetch fails
+        }
+        if (!currentNode->isLeaf) { // Should not happen if findLeafNodePageIndex is correct
+             logger.log("BTree::searchRange - Error: Fetched node " + std::to_string(currentLeafPageIndex) + " is not a leaf!");
+             delete currentNode;
+             break; // Stop if we somehow get an internal node
+        }
+
         bool continueToNextNode = true;
         auto it = std::lower_bound(currentNode->keys.begin(), currentNode->keys.end(), startKey);
         int startPos = std::distance(currentNode->keys.begin(), it);
@@ -895,18 +913,32 @@ std::vector<RecordPointer> BTree::searchRange(int startKey, int endKey) {
         for (int i = startPos; i < currentNode->keyCount; ++i) {
             int currentKey = currentNode->keys[i];
             if (currentKey <= endKey) {
-                 if (i < currentNode->recordPointers.size()) { result.push_back(currentNode->recordPointers[i]); }
-                 else { logger.log("BTree::searchRange - Error: Data pointer index out of bounds in leaf " + std::to_string(currentNode->pageIndex) + " at key index " + std::to_string(i)); }
-            } else { continueToNextNode = false; break; } // Past the end key
+                 if (i < currentNode->recordPointers.size()) {
+                     result.push_back(currentNode->recordPointers[i]);
+                 } else {
+                     logger.log("BTree::searchRange - Error: Data pointer index out of bounds in leaf " + std::to_string(currentNode->pageIndex) + " at key index " + std::to_string(i));
+                 }
+            } else {
+                // Key is past the endKey, no need to check further in this node or subsequent nodes
+                continueToNextNode = false;
+                break;
+            }
         }
-        if (!continueToNextNode) { delete currentNode; break; }
 
-        int nextPageIndex = currentNode->nextLeafPageIndex;
-        delete currentNode;
-        currentNode = (nextPageIndex != -1) ? fetchNode(nextPageIndex) : nullptr;
-        currentLeafPageIndex = nextPageIndex;
-    }
-     if (currentNode) delete currentNode; // Clean up if loop exited unexpectedly
+        int nextPageIndex = currentNode->nextLeafPageIndex; // Get next index BEFORE deleting
+        delete currentNode; // Delete the node we just processed
+        currentNode = nullptr; // Set to null after delete
+
+        if (!continueToNextNode) {
+            break; // Stop the outer loop if we passed endKey
+        }
+
+        currentLeafPageIndex = nextPageIndex; // Move to the next leaf page index for the next iteration
+
+    } // End of while loop
+
+    // No need for final delete check as currentNode is set to nullptr after deletion or if loop finishes
+
     logger.log("BTree::searchRange - Found " + std::to_string(result.size()) + " entries.");
     return result;
 }

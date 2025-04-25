@@ -1,34 +1,41 @@
 #include "../global.h"
-#include "../table.h"      // Include table definition
-#include "../index.h"      // Include index definition (Assuming this exists as per guide.md)
+#include "../table.h"      // Include table definition (now presumably supports multiple indexes)
+#include "../index.h"      // Include index definition
 #include <regex>
+#include <limits> // Required for INT_MIN, INT_MAX
+#include <vector>
+#include <algorithm> // For sort, unique (if needed)
+#include <unordered_map> // Assuming Table now uses this for indexes
 
 /**
- * @brief Executes the SEARCH command.
+ * @brief Executes the SEARCH command with multi-index support.
  *
  * SYNTAX: R <- SEARCH FROM T WHERE col bin_op literal
  *
  * Selects rows from T where the condition (col bin_op literal) is met.
- * If T is indexed on 'col' and bin_op is '==', uses the index.
- * Otherwise, performs a full table scan.
+ * - Always attempts to use or create an index for the specific 'col' for
+ *   operators ==, <, >, <=, >=, !=.
+ * - If an index exists on 'col', uses it.
+ * - If an index does NOT exist on 'col', implicitly creates a BTREE index for 'col' and uses it.
+ * - If implicit index creation fails, the search aborts.
+ * - Table scan is NOT used.
  * Stores the result in table R.
  */
 
  bool syntacticParseSEARCH() {
 	logger.log("syntacticParseSEARCH");
 	// Expected Syntax: res_table <- SEARCH FROM table_name WHERE col bin_op int_literal
-	// Token indices:      0       1    2     3       4       5    6     7      8
 	if (tokenizedQuery.size() != 9 || tokenizedQuery[3] != "FROM" ||
 		tokenizedQuery[5] != "WHERE") {
 		cout << "SYNTAX ERROR" << endl;
 		return false;
 	}
- 
+
 	parsedQuery.queryType = SEARCH;
 	parsedQuery.searchResultRelationName = tokenizedQuery[0];
 	parsedQuery.searchRelationName = tokenizedQuery[4];
 	parsedQuery.searchColumnName = tokenizedQuery[6];
- 
+
 	// Parse binary operator
 	string binaryOperator = tokenizedQuery[7];
 	if (binaryOperator == "<")
@@ -47,7 +54,7 @@
 		cout << "SYNTAX ERROR: Invalid binary operator" << endl;
 		return false;
 	}
-	
+
 	// Parse integer literal
 	regex numeric("[-]?[0-9]+");
 	string literalValue = tokenizedQuery[8];
@@ -82,12 +89,12 @@ bool semanticParseSEARCH()
 		return false;
 	}
 
-	// Potentially add checks here if the index type (BTREE/HASH) restricts operators,
-	// but for now, we only check for '==' in the executor logic.
-
 	return true;
 }
- 
+
+// Forward declaration for executeINDEX if it's not in executor.h
+extern void executeINDEX();
+
 void executeSEARCH()
 {
     logger.log("executeSEARCH");
@@ -95,121 +102,154 @@ void executeSEARCH()
     Table *sourceTable = tableCatalogue.getTable(parsedQuery.searchRelationName);
     Table *resultTable = new Table(parsedQuery.searchResultRelationName, sourceTable->columns);
 
-    int searchColIndex = sourceTable->getColumnIndex(parsedQuery.searchColumnName);
-    // bool indexUsed = false;
+    int searchColIndex = sourceTable->getColumnIndex(parsedQuery.searchColumnName); // Should be valid due to semantic check
+    bool useIndex = false;
+    bool indexImplicitlyCreated = false;
+    BTree* indexToUse = nullptr; // Pointer to the specific index we'll use
 
-    // Check conditions for using the index (as per guide.md)
-    // ASSUMPTION: Person A provides an `Index` class instance attached to the Table,
-    //             and `Index::search` returns vector<RecordPointer>.
-    // ASSUMPTION: Table class has `Index* index` member. Initialize to nullptr.
-    // ASSUMPTION: RecordPointer struct { int pageIndex; int rowIndex; }; exists.
-    // if (sourceTable->indexed &&
-    //     sourceTable->indexedColumn == parsedQuery.searchColumnName &&
-    //     parsedQuery.searchOperator == EQUAL &&
-    //     sourceTable->index != nullptr) // Check if index object actually exists
-    // {
-    //     logger.log("executeSEARCH: Using index.");
-    //     indexUsed = true;
+    // --- Determine if index exists or needs creation ---
 
-    //     // Use the index to find matching RecordPointers
-    //     vector<RecordPointer> pointers = sourceTable->index->search(parsedQuery.searchLiteralValue);
+    // Check if an index *specifically for this column* exists
+    // ASSUMPTION: Table class now has a way to check/get index for a column, e.g., getIndex(columnName)
+    indexToUse = sourceTable->getIndex(parsedQuery.searchColumnName); // Assumes getIndex returns nullptr if not found
 
-    //     // Fetch rows corresponding to the pointers
-    //     for (const auto& ptr : pointers)
-    //     {
-    //         // Fetch the page containing the row
-    //         // Note: Getting page directly. A helper table->getRow(ptr) might be cleaner.
-    //         Page page = bufferManager.getPage(sourceTable->tableName, ptr.pageIndex);
-    //         vector<int> row = page.getRow(ptr.rowIndex);
-    //         if (!row.empty())
-    //         {
-    //             resultTable->writeRow<int>(row);
-    //         }
-    //         else
-    //         {
-    //              logger.log("executeSEARCH: Warning - Index pointer pointed to an empty/invalid row.");
-    //         }
-    //     }
-    //      cout << "Index search used. Found " << pointers.size() << " matching rows." << endl;
-    // }
-    // 
-    // 
-    // 
-    bool indexUsed = false;
+    if (indexToUse != nullptr) {
+        logger.log("executeSEARCH: Found existing index for column '" + parsedQuery.searchColumnName + "'. Planning to use it.");
+        useIndex = true;
+    } else {
+        // Index doesn't exist for this column, create it implicitly
+        logger.log("executeSEARCH: Index not found for column '" + parsedQuery.searchColumnName + "'. Implicitly creating B+ Tree index...");
+        indexImplicitlyCreated = true;
 
-    // Check conditions for using the index (as per guide.md)
-    // Now UNCOMMENTED and assumed to work with Person A's BTree/Index implementation.
-    if (sourceTable->indexed &&
-        sourceTable->indexedColumn == parsedQuery.searchColumnName &&
-        parsedQuery.searchOperator == EQUAL &&
-        sourceTable->index != nullptr) // Check if index object actually exists
-    {
-        logger.log("executeSEARCH: Using index on column '" + sourceTable->indexedColumn + "' for key " + std::to_string(parsedQuery.searchLiteralValue));
-        indexUsed = true;
+        // Temporarily modify parsedQuery to call executeINDEX
+        ParsedQuery currentQuery = parsedQuery; // Save current state
+        parsedQuery.queryType = INDEX;
+        parsedQuery.indexRelationName = currentQuery.searchRelationName;
+        parsedQuery.indexColumnName = currentQuery.searchColumnName; // Create for the specific column
+        parsedQuery.indexingStrategy = BTREE;
 
-        // Use the index to find matching RecordPointers
-        // ASSUMPTION: searchKey exists and returns vector<RecordPointer>
-        vector<RecordPointer> pointers = sourceTable->index->searchKey(parsedQuery.searchLiteralValue);
+        // Execute the index creation
+        executeINDEX(); // This should modify the table object, adding the index to its collection
 
-        // Fetch rows corresponding to the pointers
-        long long rowsAdded = 0;
-        for (const auto& ptr : pointers)
+        printf("Done creating index. Now on to SEARCH\n");
+        
+        // Restore original query type
+        parsedQuery.queryType = SEARCH;
+        
+        printf("Restored original query type \n");
+
+        // Refresh the table pointer and try to get the newly created index
+        sourceTable = tableCatalogue.getTable(currentQuery.searchRelationName); // Refresh table pointer
+        indexToUse = sourceTable->getIndex(currentQuery.searchColumnName); // Try getting the index again
+
+        // cout << "Index to use: " << indexToUse << endl;
+        
+        // Check if index creation was successful
+        if (indexToUse != nullptr)
         {
-            // Basic validation of the pointer
-            if (ptr.first < 0 || ptr.first >= sourceTable->blockCount || ptr.second < 0 ) {
-                 logger.log("executeSEARCH: Warning - Index returned an invalid pointer: {page=" + std::to_string(ptr.first) + ", row=" + std::to_string(ptr.second) + "}. Skipping.");
-                 continue;
-            }
-             // Check if rowIndex is within the bounds for that specific page
-            if (ptr.second >= sourceTable->rowsPerBlockCount[ptr.first]) {
-                 logger.log("executeSEARCH: Warning - Index returned pointer with row index out of bounds for page " + std::to_string(ptr.first) + ": {page=" + std::to_string(ptr.first) + ", row=" + std::to_string(ptr.second) + ", rowsInPage=" + std::to_string(sourceTable->rowsPerBlockCount[ptr.first]) + "}. Skipping.");
-                 continue;
-            }
-
-
-            // Fetch the page containing the row
-            Page page = bufferManager.getPage(sourceTable->tableName, ptr.first);
-            vector<int> row = page.getRow(ptr.second); // 0-based index
-
-            if (!row.empty())
-            {
-                resultTable->writeRow<int>(row);
-                rowsAdded++;
-            }
-            else
-            {
-                 // This might happen if the row was deleted but index wasn't updated, or other inconsistency.
-                 logger.log("executeSEARCH: Warning - Index pointer {page=" + std::to_string(ptr.first) + ", row=" + std::to_string(ptr.second) + "} pointed to an empty row within the page file. Skipping.");
-            }
+            logger.log("executeSEARCH: Successfully created index for column '" + currentQuery.searchColumnName + "'. Now planning to use it.");
+            useIndex = true;
         }
-        // Provide user feedback
-        cout << "Index search used. Found " << pointers.size() << " pointer(s), added " << rowsAdded << " row(s) to result." << endl;
-    }
-    else
-    {
-        // Fallback to table scan
-        logger.log("executeSEARCH: Using table scan (index not applicable or not found).");
-        Cursor cursor = sourceTable->getCursor();
-        vector<int> row = cursor.getNext();
-        long long rowsFound = 0;
-
-        while (!row.empty())
+        else
         {
-            bool conditionMet = evaluateBinOp(row[searchColIndex],
-                                              parsedQuery.searchLiteralValue,
-                                              parsedQuery.searchOperator);
-
-            if (conditionMet)
-            {
-                resultTable->writeRow<int>(row);
-                rowsFound++;
-            }
-            row = cursor.getNext();
+            logger.log("executeSEARCH: ERROR - Failed to create or retrieve implicitly created index for column '" + currentQuery.searchColumnName + "'. Aborting search operation.");
+            useIndex = false; // Ensure we don't proceed
         }
-         cout << "Table scan used. Found " << rowsFound << " matching rows." << endl;
     }
 
-    // Finalize the result table
+    // --- Perform Index Search (if index is available) ---
+
+    if (useIndex && indexToUse != nullptr) {
+        vector<RecordPointer> pointers;
+        int searchLiteral = parsedQuery.searchLiteralValue;
+
+        // Use the appropriate index search method based on the operator
+        switch (parsedQuery.searchOperator) {
+            case EQUAL:
+                logger.log("executeSEARCH: Using index->searchKey(" + std::to_string(searchLiteral) + ")");
+                pointers = indexToUse->searchKey(searchLiteral);
+                break;
+            case LESS_THAN:
+                 logger.log("executeSEARCH: Using index->searchRange(MIN, " + std::to_string(searchLiteral - 1) + ")");
+                 pointers = indexToUse->searchRange(std::numeric_limits<int>::min(), (searchLiteral == std::numeric_limits<int>::min()) ? std::numeric_limits<int>::min() : searchLiteral - 1);
+                 if (searchLiteral == std::numeric_limits<int>::min()) pointers.clear();
+                break;
+            case GREATER_THAN:
+                 logger.log("executeSEARCH: Using index->searchRange(" + std::to_string(searchLiteral + 1) + ", MAX)");
+                 pointers = indexToUse->searchRange((searchLiteral == std::numeric_limits<int>::max()) ? std::numeric_limits<int>::max() : searchLiteral + 1, std::numeric_limits<int>::max());
+                 if (searchLiteral == std::numeric_limits<int>::max()) pointers.clear();
+                break;
+            case LEQ:
+                logger.log("executeSEARCH: Using index->searchRange(MIN, " + std::to_string(searchLiteral) + ")");
+                pointers = indexToUse->searchRange(std::numeric_limits<int>::min(), searchLiteral);
+                break;
+            case GEQ:
+                 logger.log("executeSEARCH: Using index->searchRange(" + std::to_string(searchLiteral) + ", MAX)");
+                pointers = indexToUse->searchRange(searchLiteral, std::numeric_limits<int>::max());
+                break;
+            case NOT_EQUAL:
+                {
+                    logger.log("executeSEARCH: Using index for != by combining two range scans.");
+                    vector<RecordPointer> pointers_less;
+                    vector<RecordPointer> pointers_greater;
+
+                    pointers_less = indexToUse->searchRange(std::numeric_limits<int>::min(), (searchLiteral == std::numeric_limits<int>::min()) ? std::numeric_limits<int>::min() : searchLiteral - 1);
+                    if (searchLiteral == std::numeric_limits<int>::min()) pointers_less.clear();
+
+                    pointers_greater = indexToUse->searchRange((searchLiteral == std::numeric_limits<int>::max()) ? std::numeric_limits<int>::max() : searchLiteral + 1, std::numeric_limits<int>::max());
+                     if (searchLiteral == std::numeric_limits<int>::max()) pointers_greater.clear();
+
+                    pointers = pointers_less;
+                    pointers.insert(pointers.end(), pointers_greater.begin(), pointers_greater.end());
+                     logger.log("executeSEARCH: Combined " + std::to_string(pointers_less.size()) + " (<) and " + std::to_string(pointers_greater.size()) + " (>) pointers for != operator.");
+                }
+                break;
+            default:
+                logger.log("executeSEARCH: Error - Unknown operator in index search switch. Aborting.");
+                 useIndex = false; // Should not happen
+                break;
+        }
+
+        // --- Fetch rows using the pointers obtained from the index ---
+        if(useIndex) { // Check again in case default case was hit
+            long long rowsAdded = 0;
+            for (const auto& ptr : pointers)
+            {
+                // Basic validation of the pointer
+                 if (ptr.first < 0 || ptr.first >= sourceTable->blockCount || ptr.second < 0 ) {
+                    logger.log("executeSEARCH: Warning - Index returned an invalid pointer: {page=" + std::to_string(ptr.first) + ", row=" + std::to_string(ptr.second) + "}. Skipping.");
+                    continue;
+                }
+                // Check if rowIndex is within the bounds for that specific page
+                if (ptr.first >= sourceTable->rowsPerBlockCount.size() || ptr.second >= sourceTable->rowsPerBlockCount[ptr.first]) {
+                    logger.log("executeSEARCH: Warning - Index returned pointer with row index out of bounds for page " + std::to_string(ptr.first) + ": {page=" + std::to_string(ptr.first) + ", row=" + std::to_string(ptr.second) + ", rowsInPage=" + (ptr.first < sourceTable->rowsPerBlockCount.size() ? std::to_string(sourceTable->rowsPerBlockCount[ptr.first]) : "N/A") + "}. Skipping.");
+                    continue;
+                }
+
+                // Fetch the page containing the row
+                Page page = bufferManager.getPage(sourceTable->tableName, ptr.first);
+                vector<int> row = page.getRow(ptr.second);
+
+                if (!row.empty())
+                {
+                    resultTable->writeRow<int>(row);
+                    rowsAdded++;
+                }
+                else
+                {
+                    logger.log("executeSEARCH: Warning - Index pointer {page=" + std::to_string(ptr.first) + ", row=" + std::to_string(ptr.second) + "} pointed to an empty row within the page file. Skipping.");
+                }
+            }
+            // Provide user feedback
+            cout << (indexImplicitlyCreated ? "Implicit index created for '" + parsedQuery.searchColumnName + "'. " : "") << "Index search used. ";
+            cout << "Found " << pointers.size() << " pointer(s), added " << rowsAdded << " row(s) to result." << endl;
+        }
+    } else { // Index not used (likely because implicit creation failed)
+         logger.log("executeSEARCH: No search performed as index could not be used or created. Result table will be empty.");
+    }
+
+
+    // --- Finalize the result table ---
     if (resultTable->blockify()) {
         tableCatalogue.insertTable(resultTable);
         cout << "SEARCH successful. Result stored in table: " << resultTable->tableName << endl;

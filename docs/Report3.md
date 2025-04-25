@@ -131,8 +131,48 @@ KARWAL/PAUL FILL IN HERE (AND ANY OTHER SECTIONS IF NEEDED)
 7.  **Incomplete Features:** Borrowing and merging operations for *internal* nodes during deletion underflow are not fully implemented (stubs exist).
 8.  **Persistence:** The index structure (root page index, node count) is not persisted between program executions. The index must be rebuilt using the `INDEX` command each time the program starts.
 
-## Overall Assumptions
+### SEARCH
 
+-   **Syntax:** `R <- SEARCH FROM T WHERE col bin_op literal`
+-   **Functionality:** Selects rows from table `T` where the condition `col bin_op literal` is true and stores the result in a new table `R`. Crucially, this command **always** attempts to use a B+ Tree index on the specified `col`. If an index does not exist on `col`, it implicitly *creates* one before performing the search. If index creation fails, the command aborts. Table scans are *not* used for this command.
+-   **Supported Operators:** `==`, `<`, `>`, `<=`, `>=`, `!=`.
+-   **Core Logic & Index Interaction:**
+    1.  **Index Check/Creation:**
+        -   The system first checks if a B+ Tree index already exists on the specified `searchColumnName` for the `searchRelationName` using `table->getIndex()`.
+        -   **If Index Exists:** It retrieves the pointer to the existing `BTree` object.
+        -   **If Index Doesn't Exist:** It attempts to *implicitly create* a B+ Tree index on `searchColumnName` by temporarily setting the query type to `INDEX` and calling `executeINDEX()`. After creation, it attempts to retrieve the pointer to the newly created index. If creation or retrieval fails, the `SEARCH` operation aborts.
+    2.  **Index-Based Search:** Assuming a valid `BTree*` (`indexToUse`) was obtained (either existing or implicitly created):
+        -   The appropriate index search method is called based on `parsedQuery.searchOperator`:
+            -   `==`: `indexToUse->searchKey(literal)`
+            -   `<`: `indexToUse->searchRange(MIN_INT, literal - 1)`
+            -   `>`: `indexToUse->searchRange(literal + 1, MAX_INT)`
+            -   `<=`: `indexToUse->searchRange(MIN_INT, literal)`
+            -   `>=`: `indexToUse->searchRange(literal, MAX_INT)`
+            -   `!=`: Combines results from two range scans: `searchRange(MIN_INT, literal - 1)` and `searchRange(literal + 1, MAX_INT)`.
+        -   This yields a `vector<RecordPointer>` containing the locations (`{pageIndex, rowIndexInPage}`) of potentially matching rows within the source table's data pages.
+    3.  **Row Fetching & Filtering:**
+        -   The code iterates through the obtained `RecordPointer`s.
+        -   **Pointer Validation:** Each pointer is validated against the source table's metadata (`blockCount`, `rowsPerBlockCount`) to ensure it points to a valid location. Invalid pointers are logged and skipped.
+        -   **Row Retrieval:** For valid pointers, the corresponding page is fetched using `bufferManager.getPage()`, and the specific row data is retrieved using `page.getRow()`.
+        -   **Result Writing:** The retrieved row data is written to the `resultTable`.
+    4.  **Result Finalization:**
+        -   After processing all pointers, `resultTable->blockify()` is called to create the page files for the result table.
+        -   The `resultTable` is inserted into the `tableCatalogue`.
+-   **Efficiency:** Relies entirely on the B+ Tree index for row identification, providing logarithmic time complexity for finding matching row pointers (O(log_p N) where p is tree order, N is number of keys). The subsequent row fetching depends on the number of matching rows and their distribution across pages. Avoids costly full table scans. Implicit index creation adds an initial O(M log_p M) cost (where M is total rows) if the index wasn't pre-built.
+-   **Assumptions:**
+    *   The `WHERE` clause condition always compares a column against an integer literal.
+    *   Implicit index creation uses the BTREE strategy.
+    *   Index node I/O happens directly, not via `BufferManager`.
+    *   Integer data types.
+-   **Error Handling:**
+    *   Syntax errors during parsing.
+    *   Semantic errors (source table doesn't exist, result table exists, search column doesn't exist).
+    *   Aborts if implicit index creation fails.
+    *   Handles and logs invalid `RecordPointer`s returned by the index (e.g., due to stale index data if not properly maintained by INSERT/DELETE/UPDATE).
+    *   Handles cases where fetched pages or rows are unexpectedly empty.
+
+
+## Overall Assumptions
 
 1.  **Page Modification:** Assumes rewriting an entire page via `bufferManager.writePage` after modifying rows in memory is the accepted method for simulating in-place updates/deletions in the absence of finer-grained page modification capabilities (like a `Page::updateRow` method).
 3.  **Data Types:** Assumes all table data and query literals involved in conditions and updates are integers.
