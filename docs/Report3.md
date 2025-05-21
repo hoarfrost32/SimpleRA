@@ -1,9 +1,5 @@
 # Project Phase 3 Report
 
-## Indexing Structure Used
-
-KARWAL/PAUL FILL IN HERE (AND ANY OTHER SECTIONS IF NEEDED)
-
 ## Detailed Explanation of Commands
 
 ### INSERT
