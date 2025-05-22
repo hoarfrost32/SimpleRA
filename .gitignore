@@ -6,3 +6,4 @@
 server
 data/temp
 log
+.DS_Store
