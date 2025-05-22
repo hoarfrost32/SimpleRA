@@ -32,5 +32,6 @@ bool semanticParseINSERT();
 bool semanticParseUPDATE();
 bool semanticParseDELETE();
 bool semanticParseSEARCH();
+bool semanticParseQUIT();
 
 #endif

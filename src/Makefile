@@ -27,4 +27,4 @@ clean:
 
 %.o: %.cpp global.h
 
-$(EXEC_DIR)/%.o: $(EXEC_DIR)/.cpp global.h
+$(EXEC_DIR)/%.o: $(EXEC_DIR)/%.cpp global.h

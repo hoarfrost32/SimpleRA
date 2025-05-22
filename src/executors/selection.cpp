@@ -106,17 +106,61 @@ bool evaluateBinOp(int value1, int value2, BinaryOperator binaryOperator)
 void executeSELECTION()
 {
 	logger.log("executeSELECTION");
+    Table* table_ptr = tableCatalogue.getTable(parsedQuery.selectionRelationName); // Renamed to avoid conflict
+    if (table_ptr) {
+        logger.log("executeSELECTION: Source table '" + table_ptr->tableName + "' info:");
+        logger.log("  rowCount: " + to_string(table_ptr->rowCount));
+        logger.log("  blockCount: " + to_string(table_ptr->blockCount));
+        logger.log("  columnCount: " + to_string(table_ptr->columnCount));
+        string rpb_str = "  rowsPerBlockCount: ";
+        for(size_t i=0; i < table_ptr->rowsPerBlockCount.size(); ++i) {
+            rpb_str += to_string(i) + ":" + to_string(table_ptr->rowsPerBlockCount[i]) + " ";
+            if (i > 30 && i < table_ptr->rowsPerBlockCount.size() - 5) { // To keep log shorter
+                rpb_str += "... ";
+                i = table_ptr->rowsPerBlockCount.size() - 6;
+            }
+        }
+        logger.log(rpb_str);
+    } else {
+        logger.log("executeSELECTION: Source table '" + parsedQuery.selectionRelationName + "' not found in catalogue!");
+        // If table not found, we probably should not proceed.
+        // Create an empty resultant table and return, or just return.
+        // For now, let's ensure a resultantTable object is created if needed by other logic,
+        // but it will be empty.
+        Table *resultantTable = new Table(parsedQuery.selectionResultRelationName, {}); // Empty columns
+        if (resultantTable->blockify()) // Attempt to blockify (will be empty)
+    		tableCatalogue.insertTable(resultantTable);
+    	else
+    	{
+    		cout << "Empty Table" << endl;
+    		resultantTable->unload();
+    		delete resultantTable;
+    	}
+        return; 
+    }
 
-	Table table = *tableCatalogue.getTable(parsedQuery.selectionRelationName);
+	Table table = *table_ptr; // Use the fetched pointer
 	Table *resultantTable = new Table(parsedQuery.selectionResultRelationName, table.columns);
 	Cursor cursor = table.getCursor();
+    logger.log("executeSELECTION: About to call cursor.getNext() for the first time.");
 	vector<int> row = cursor.getNext();
+    if(row.empty()) {
+        logger.log("executeSELECTION: First call to cursor.getNext() returned an EMPTY row.");
+    } else {
+        string row_str_log_first = "executeSELECTION: First call to cursor.getNext() returned row: "; // Changed variable name
+        for(size_t i=0; i<row.size(); ++i) row_str_log_first += (i==0?"":", ") + to_string(row[i]);
+        logger.log(row_str_log_first);
+    }
+
 	int firstColumnIndex = table.getColumnIndex(parsedQuery.selectionFirstColumnName);
 	int secondColumnIndex;
 	if (parsedQuery.selectType == COLUMN)
 		secondColumnIndex = table.getColumnIndex(parsedQuery.selectionSecondColumnName);
 	while (!row.empty())
 	{
+        string row_str_log = "executeSELECTION: Processing row: ";
+        for(size_t i=0; i<row.size(); ++i) row_str_log += (i==0?"":", ") + to_string(row[i]);
+        logger.log(row_str_log);
 
 		int value1 = row[firstColumnIndex];
 		int value2;
@@ -124,7 +168,11 @@ void executeSELECTION()
 			value2 = parsedQuery.selectionIntLiteral;
 		else
 			value2 = row[secondColumnIndex];
-		if (evaluateBinOp(value1, value2, parsedQuery.selectionBinaryOperator))
+		
+        bool eval_res = evaluateBinOp(value1, value2, parsedQuery.selectionBinaryOperator);
+        logger.log("executeSELECTION: Cond Col Val1: " + to_string(value1) + ", Literal/Col Val2: " + to_string(value2) + ", Op: " + to_string(parsedQuery.selectionBinaryOperator) + ", Result: " + (eval_res ? "true" : "false"));
+
+		if (eval_res) // Use the stored result
 			resultantTable->writeRow<int>(row);
 		row = cursor.getNext();
 	}

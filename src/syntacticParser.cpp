@@ -4,6 +4,9 @@ bool syntacticParse()
 {
 	logger.log("syntacticParse");
 	string possibleQueryType = tokenizedQuery[0];
+	
+	if (tokenizedQuery.size() == 1 && tokenizedQuery[0] == "QUIT")
+	  return syntacticParseQUIT();
 
 	if (tokenizedQuery.size() < 2)
 	{
@@ -83,7 +86,7 @@ bool syntacticParse()
 			return syntacticParseSEARCH();
 		else
 		{
-			cout << "SYNTAX ERROR" << endl;
+			cout << "SYNTAX ERROR NIGGA 1" << endl;
 			return false;
 		}
 	}

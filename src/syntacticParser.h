@@ -36,6 +36,7 @@ enum QueryType
 	UPDATE,
 	DELETE,
 	SEARCH,
+	QUIT,
 	UNDETERMINED
 };
 
@@ -219,6 +220,7 @@ bool syntacticParseINSERT();
 bool syntacticParseUPDATE();
 bool syntacticParseDELETE();
 bool syntacticParseSEARCH();
+bool syntacticParseQUIT();
 
 bool isFileExists(string tableName);
 bool isQueryFile(string fileName);
