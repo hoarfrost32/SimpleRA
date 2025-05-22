@@ -42,19 +42,8 @@ int main(void)
 		for (std::sregex_iterator i = words_begin; i != words_end; ++i)
 			tokenizedQuery.emplace_back((*i).str());
 
-		if (tokenizedQuery.size() == 1 && tokenizedQuery.front() == "QUIT")
-		{
-			break;
-		}
-
 		if (tokenizedQuery.empty())
 		{
-			continue;
-		}
-
-		if (tokenizedQuery.size() == 1)
-		{
-			cout << "SYNTAX ERROR" << endl;
 			continue;
 		}
 

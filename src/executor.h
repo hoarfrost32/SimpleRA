@@ -32,6 +32,7 @@ void executeINSERT();
 void executeUPDATE();
 void executeDELETE();
 void executeSEARCH();
+void executeQUIT();
 
 bool evaluateBinOp(int value1, int value2, BinaryOperator binaryOperator);
 void printRowCount(int rowCount);

@@ -83,6 +83,9 @@ void executeCommand()
 	case SEARCH:
 		executeSEARCH();
 		break;
+	case QUIT:
+	  executeQUIT();
+    break;
 	default:
 		cout << "PARSING ERROR" << endl;
 	}

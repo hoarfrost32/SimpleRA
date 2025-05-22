@@ -254,10 +254,10 @@ void executeDELETE()
         rowsToDeleteByPage[pointer.first].push_back(pointer.second);
     }
 
-    // Sort row indices within each page's list for efficient processing (descending order for stable removal)
+    // Sort row indices within each page's list for efficient processing (ascending order)
     for (auto &pair : rowsToDeleteByPage)
     {
-        sort(pair.second.rbegin(), pair.second.rend()); // Sort descending
+        sort(pair.second.begin(), pair.second.end()); // Sort ascending
     }
 
     // --- 3. Process Deletions Page by Page ---
@@ -287,7 +287,7 @@ void executeDELETE()
             bool deleteThisRow = false;
             if (deletePtr < rowIndicesToDelete.size() && i == rowIndicesToDelete[deletePtr])
             {
-                // This row index matches the next one in the descending list to delete
+                // This row index matches the next one in the ascending list to delete
                 deleteThisRow = true;
                 deletePtr++;
             }

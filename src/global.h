@@ -4,6 +4,7 @@
 #pragma once
 #include "executor.h"
 #include <regex>
+#include <cstdlib>
 
 extern float BLOCK_SIZE;
 extern uint BLOCK_COUNT;

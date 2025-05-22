@@ -4,6 +4,9 @@ bool syntacticParse()
 {
 	logger.log("syntacticParse");
 	string possibleQueryType = tokenizedQuery[0];
+	
+	if (tokenizedQuery.size() == 1 && tokenizedQuery[0] == "QUIT")
+	  return syntacticParseQUIT();
 
 	if (tokenizedQuery.size() < 2)
 	{
